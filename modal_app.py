@@ -76,6 +76,21 @@ def train(script: str, args: str, run_tag: str, logdir: str = ""):
     return run_tag
 
 
+@app.function(
+    image=image,
+    volumes={"/results": results},
+    timeout=60 * 60 * 12,
+    cpu=4,
+    memory=8192,
+)
+def run_script(script: str, args: str):
+    """Run any repo script verbatim (evaluation, table generation, ...)."""
+    cmd = [sys.executable, script, *shlex.split(args)]
+    print("[modal] running:", " ".join(cmd))
+    subprocess.run(cmd, check=True, cwd=REPO_REMOTE)
+    results.commit()
+
+
 # Phase 1 baseline methods: script + method-specific args (README settings)
 PHASE1_METHODS = {
     "dqn_mlp": ("train_dqn_mlp.py", ""),
