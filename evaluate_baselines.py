@@ -9,10 +9,10 @@ import numpy as np
 
 from env_builder import get_or_create_eval_pool
 
-try:
-    import traci  # type: ignore
-except Exception:
-    traci = None
+# Must match the env's backend (libsumo by default) — a plain `import traci`
+# here would silently query a connectionless socket module.
+from marl_utils.sumo_backend import get_backend
+traci, SUMO_BACKEND = get_backend()
 
 
 # -----------------------------------------------------------------------------

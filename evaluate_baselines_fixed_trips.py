@@ -12,10 +12,10 @@ import numpy as np
 
 from sumo_marl_fixed_routes_env import SumoGridMARLFixedEnv
 
-try:
-    import traci  # type: ignore
-except Exception:
-    traci = None
+# Must match the env's backend (libsumo by default) — a plain `import traci`
+# here would silently query a connectionless socket module.
+from marl_utils.sumo_backend import get_backend
+traci, SUMO_BACKEND = get_backend()
 
 
 # -----------------------------------------------------------------------------
