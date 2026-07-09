@@ -80,6 +80,9 @@ class SumoGridMARLRandomEnv:
         # max_routes_per_section: int = 60,
         min_flow_rate_vph: float = 100.0,
         max_flow_rate_vph: float = 2500.0,
+        # Demand regime (None = original random fringe-to-fringe flows)
+        regime: str | None = None,           # "corridor" | "cross" | "platoons" | "bursty"
+        regime_intensity: float = 1.0,       # global multiplier on regime flow rates
         # General options:
         seed: int = 42,
         gui: bool = False,
@@ -105,6 +108,12 @@ class SumoGridMARLRandomEnv:
         self.max_routes_per_section = int(((grid_n*4)**2)*0.2)
         self.min_flow_rate_vph = min_flow_rate_vph
         self.max_flow_rate_vph = max_flow_rate_vph
+        if regime is not None:
+            from marl_utils.demand_regimes import REGIMES
+            if regime not in REGIMES:
+                raise ValueError(f"Unknown regime '{regime}'; expected one of {REGIMES}")
+        self.regime = regime
+        self.regime_intensity = float(regime_intensity)
         self.seed = seed
         if gui and SUMO_BACKEND == "libsumo":
             raise RuntimeError("sumo-gui requires the traci backend: set SUMO_MARL_BACKEND=traci")
@@ -373,7 +382,23 @@ class SumoGridMARLRandomEnv:
                     )
                     flow_id += 1
         ET.ElementTree(trips_root).write(self.trip_file, encoding="utf-8", xml_declaration=True)
+        self._duaroute_trips_to_routes()
 
+    def _generate_regime_routes_for_episode(self):
+        """Regime-conditioned demand: fresh draw from the episode RNG each reset."""
+        from marl_utils.demand_regimes import write_regime_trips
+        total_time = float(self.episode_steps * self.sumo_steps_per_env_step) * self.step_length_internal
+        write_regime_trips(
+            self.trip_file,
+            regime=self.regime,
+            grid_n=self.grid_n,
+            sim_end=total_time,
+            rng=self._rng,
+            intensity=self.regime_intensity,
+        )
+        self._duaroute_trips_to_routes()
+
+    def _duaroute_trips_to_routes(self):
         duarouter = os.path.join(os.environ["SUMO_HOME"], "bin", "duarouter")
         kwargs = {}
         if self.suppress_sumo_output:
@@ -399,8 +424,11 @@ class SumoGridMARLRandomEnv:
 
     # ---------------------- Env API ----------------------
     def reset(self) -> Dict[str, np.ndarray]:
-        # New random flows each episode
-        self._generate_random_routes_for_episode()
+        # New flows each episode: regime-conditioned if set, else random fringe-to-fringe
+        if self.regime is not None:
+            self._generate_regime_routes_for_episode()
+        else:
+            self._generate_random_routes_for_episode()
         self._kpi_reset()
 
         if self._connected:

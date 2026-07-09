@@ -23,6 +23,8 @@ def build_train_env(args):
         grid_n=args.grid_n,  # <— explicit
         episode_steps=args.episode_steps,
         sumo_steps_per_env_step=args.sumo_steps_per_env_step,
+        regime=getattr(args, "regime", None),
+        regime_intensity=getattr(args, "regime_intensity", 1.0),
         seed=args.seed,
         verbose=False,
         suppress_sumo_output=True,

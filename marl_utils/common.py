@@ -17,6 +17,11 @@ def parse_args():
     parser.add_argument('--eval-every', type=int, default=5)
     parser.add_argument('--episode-steps', type=int, default=200)
     parser.add_argument('--sumo-steps-per-env-step', type=int, default=5)
+    parser.add_argument('--regime', type=str, default=None,
+                        choices=['corridor', 'cross', 'platoons', 'bursty'],
+                        help='Regime-conditioned training demand (default: original random flows)')
+    parser.add_argument('--regime-intensity', type=float, default=1.0,
+                        help='Global multiplier on regime flow rates')
     parser.add_argument('--gui', action='store_true')
     parser.add_argument('--gui-delay-ms', type=int, default=0)
     parser.add_argument('--logdir', type=str, default='logs')
