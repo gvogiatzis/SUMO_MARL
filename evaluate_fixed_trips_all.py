@@ -17,6 +17,7 @@ from marl_utils.models import (
     RecurrentQNet,
     GNNPolicyQ,
     GNNLSTMPolicyQ,
+    CoLightQ,
     # A2C actor families
     ActorMLP,
     ActorLSTM,
@@ -30,6 +31,7 @@ from marl_utils.common import build_grid_edge_index
 Q_METHODS = {
     "dqn_mlp", "drqn_lstm", "dqn_gnn", "drqn_gnn_lstm",
     "ctde_vdn_mlp", "ctde_vdn_lstm", "ctde_vdn_gnn", "ctde_vdn_gnn_lstm",
+    "colight",
 }
 A2C_METHODS = {
     "ia2c_mlp", "ia2c_lstm", "ia2c_gnn", "ia2c_gnn_lstm",
@@ -53,6 +55,8 @@ def build_model(method: str, obs_dim: int, act_dim: int, hidden_q: int, hidden_a
             return GNNPolicyQ(node_dim=obs_dim, actions=act_dim, hidden=hidden, layers=gnn_layers)
         elif m == "drqn_gnn_lstm" or m == "ctde_vdn_gnn_lstm":
             return GNNLSTMPolicyQ(node_dim=obs_dim, actions=act_dim, hidden=hidden, gnn_layers=gnn_layers)
+        elif m == "colight":
+            return CoLightQ(node_dim=obs_dim, actions=act_dim, hidden=hidden)
     elif m in A2C_METHODS:
         hidden = hidden_a2c
         if m == "ia2c_mlp" or m == "ma2c_pa_mlp":
@@ -86,6 +90,7 @@ def checkpoint_path_for(method: str, grid_n: int, seed: int, logs_base: Path) ->
         "dqn_mlp"           : f"model_best_dqn_mlp_shared_seed{seed}.pt",
         "drqn_lstm"         : f"model_best_drqn_lstm_shared_seqlen8_seed{seed}.pt",
         "dqn_gnn"           : f"model_best_dqn_gnn_shared_seed{seed}.pt",
+        "colight"           : f"model_best_colight_shared_seed{seed}.pt",
         "drqn_gnn_lstm"     : f"model_best_drqn_gnn_lstm_shared_seqlen8_seed{seed}.pt",
         "ctde_vdn_mlp"      : f"model_best_vdn_ctde_mlp_shared_seed{seed}.pt",
         "ctde_vdn_lstm"     : f"model_best_vdn_ctde_lstm_shared_seqlen8_seed{seed}.pt",
@@ -216,7 +221,7 @@ def run_single_episode(
 
     is_q_mlp = isinstance(model, QNetMLP)
     is_q_lstm = isinstance(model, RecurrentQNet)
-    is_q_gnn = isinstance(model, GNNPolicyQ)
+    is_q_gnn = isinstance(model, (GNNPolicyQ, CoLightQ))  # same call signature
     is_q_gnnl = isinstance(model, GNNLSTMPolicyQ)
 
     is_pi_mlp = isinstance(model, ActorMLP)

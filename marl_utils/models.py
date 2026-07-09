@@ -690,3 +690,76 @@ class CriticGNNPerAgentLSTMAttn(nn.Module):
         """
         v, new_hidden = self.forward(node_feats_t, edge_index, edge_attr, hidden)
         return v, new_hidden
+
+# ====================================== CoLight =========================================
+class CoLightMultiHeadAtt(nn.Module):
+    """
+    CoLight graph attention (Wei et al., CIKM 2019), ported from the
+    LibSignal implementation to plain PyTorch (no torch_geometric).
+
+    Per head: e_ij = <ReLU(W_t h_i), ReLU(W_s h_j)> for j in N(i) ∪ {i},
+    alpha = softmax_j(e_ij), out_i = mean over heads of sum_j alpha_ij ReLU(W_h h_j),
+    followed by a shared dv -> d_out projection and ReLU.
+
+    Last attention weights are kept (detached) in self.last_alpha as
+    ([E_with_self_loops, heads], (src, dst)) for communication analysis.
+    """
+    def __init__(self, d: int = 128, dv: int = 16, d_out: int = 128, nv: int = 5):
+        super().__init__()
+        self.d, self.dv, self.d_out, self.nv = d, dv, d_out, nv
+        self.W_target = nn.Linear(d, dv * nv)
+        self.W_source = nn.Linear(d, dv * nv)
+        self.hidden_embedding = nn.Linear(d, dv * nv)
+        self.out = nn.Linear(dv, d_out)
+        self.last_alpha = None
+
+    def forward(self, h: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
+        N = h.size(0)
+        loops = torch.arange(N, device=h.device)
+        src = torch.cat([edge_index[0].to(h.device), loops])   # [E]
+        dst = torch.cat([edge_index[1].to(h.device), loops])   # [E]
+
+        h_t = F.relu(self.W_target(h)).view(N, self.nv, self.dv)
+        h_s = F.relu(self.W_source(h)).view(N, self.nv, self.dv)
+        m = F.relu(self.hidden_embedding(h)).view(N, self.nv, self.dv)
+
+        e = (h_t[dst] * h_s[src]).sum(-1)                       # [E, nv]
+        # numerically stable softmax over incoming edges per target node
+        e_max = torch.full((N, self.nv), -torch.inf, device=h.device)
+        e_max = e_max.index_reduce(0, dst, e, "amax", include_self=False)
+        e_exp = torch.exp(e - e_max[dst])
+        denom = torch.zeros(N, self.nv, device=h.device).index_add_(0, dst, e_exp)
+        alpha = e_exp / (denom[dst] + 1e-12)                    # [E, nv]
+        self.last_alpha = (alpha.detach(), (src, dst))
+
+        weighted = alpha.unsqueeze(-1) * m[src]                 # [E, nv, dv]
+        agg = torch.zeros(N, self.nv, self.dv, device=h.device).index_add_(0, dst, weighted)
+        return F.relu(self.out(agg.mean(dim=1)))                # [N, d_out]
+
+
+class CoLightQ(nn.Module):
+    """CoLight Q-network: embedding MLP + graph-attention layer(s) + Q head.
+
+    Same call signature as GNNPolicyQ so it reuses dqn_update_shared_gnn.
+    Defaults follow LibSignal's colight.yml (128-128 embedding, 1 att layer,
+    5 heads x 16 dims, 128 out).
+    """
+    def __init__(self, node_dim: int, actions: int = 4, hidden: int = 128,
+                 att_layers: int = 1, heads: int = 5, dv: int = 16):
+        super().__init__()
+        self.embed = nn.Sequential(
+            nn.Linear(node_dim, hidden), nn.ReLU(),
+            nn.Linear(hidden, hidden), nn.ReLU(),
+        )
+        self.att = nn.ModuleList([
+            CoLightMultiHeadAtt(d=hidden, dv=dv, d_out=hidden, nv=heads)
+            for _ in range(att_layers)
+        ])
+        self.q_head = nn.Linear(hidden, actions)
+
+    def forward(self, node_feats: torch.Tensor, edge_index: torch.Tensor,
+                edge_attr: Optional[torch.Tensor] = None) -> torch.Tensor:
+        z = self.embed(node_feats)
+        for blk in self.att:
+            z = blk(z, edge_index)
+        return self.q_head(z)
