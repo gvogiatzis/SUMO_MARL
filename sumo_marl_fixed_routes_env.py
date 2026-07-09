@@ -51,13 +51,14 @@ except Exception:
         Box = _Box
 
 # ---------------- SUMO imports ----------------
+from marl_utils.sumo_backend import get_backend
+traci, SUMO_BACKEND = get_backend()  # with libsumo, sets SUMO_HOME to the pip eclipse-sumo package
+
 if "SUMO_HOME" in os.environ:
     tools = os.path.join(os.environ["SUMO_HOME"], "tools")
     sys.path.append(tools)
 else:
     raise RuntimeError("Please set SUMO_HOME to your SUMO installation directory.")
-
-import traci  # type: ignore
 import sumolib  # type: ignore
 
 
@@ -103,6 +104,8 @@ class SumoGridMARLFixedEnv:
         self.episode_steps = episode_steps
 
         self.seed = seed
+        if gui and SUMO_BACKEND == "libsumo":
+            raise RuntimeError("sumo-gui requires the traci backend: set SUMO_MARL_BACKEND=traci")
         self.gui = gui
         self.gui_delay_ms = gui_delay_ms
         self.verbose = verbose
@@ -367,6 +370,12 @@ class SumoGridMARLFixedEnv:
 
         if self._connected:
             self.close()
+        elif SUMO_BACKEND == "libsumo":
+            # libsumo allows one in-process simulation; another env instance may still own it.
+            try:
+                traci.close()
+            except Exception:
+                pass
 
         sumo_bin = os.path.join(os.environ["SUMO_HOME"], "bin", "sumo-gui" if self.gui else "sumo")
         cmd = [
@@ -643,12 +652,12 @@ class SumoGridMARLFixedEnv:
             TLLogic = traci.trafficlight.Logic
             TLPhase = traci.trafficlight.Phase
             phases = [
-                TLPhase(duration=30, state=states[0]),
-                TLPhase(duration=30, state=states[1]),
-                TLPhase(duration=30, state=states[2]),
-                TLPhase(duration=30, state=states[3]),
+                TLPhase(30, states[0]),
+                TLPhase(30, states[1]),
+                TLPhase(30, states[2]),
+                TLPhase(30, states[3]),
             ]
-            logic = TLLogic(programID="marl4", type=0, currentPhaseIndex=0, phases=phases)
+            logic = TLLogic("marl4", 0, 0, phases)
             traci.trafficlight.setProgramLogic(tls_id, logic)
             traci.trafficlight.setProgram(tls_id, "marl4")
 
