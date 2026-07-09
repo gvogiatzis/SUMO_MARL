@@ -424,6 +424,7 @@ def main():
         help="Number of repeated evaluations using shared SUMO seeds.",
     )
 
+    ap.add_argument("--out-dir", type=str, default="eval_fixed_demand_type", help="Directory for the results CSV")
     ap.add_argument("--logs-base", type=str, default=".", help="Base dir containing logs_grid_N/seedSEED/")
     ap.add_argument("--trips-root", type=str, default=".", help="Root dir containing eval_trips_*_grid_N/")
     ap.add_argument("--steps", type=int, default=200, help="Episode steps")
@@ -471,7 +472,7 @@ def main():
     trips_root = Path(args.trips_root).resolve()
 
     out_path = Path(
-        f"eval_fixed_demand_type/eval_results_fixed_trip_{args.trip_type}_seed{args.seed}.csv"
+        f"{args.out_dir}/eval_results_fixed_trip_{args.trip_type}_seed{args.seed}.csv"
     ).resolve()
 
     # ------------------------------------------------------------------
