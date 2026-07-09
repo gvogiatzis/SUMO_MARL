@@ -33,6 +33,11 @@ REPO_REMOTE = "/root/SUMO_MARL"
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
+    # libsumo's native module links against X11/GL even when headless
+    .apt_install(
+        "libx11-6", "libxext6", "libxrender1", "libxft2", "libxt6", "libxi6",
+        "libsm6", "libice6", "libgl1", "libglu1-mesa", "libfontconfig1", "libfreetype6",
+    )
     .pip_install(
         "torch",
         "numpy",
