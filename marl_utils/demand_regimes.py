@@ -138,6 +138,7 @@ def write_switching_trips(
     rng: np.random.Generator,
     segment_len_s: float,
     intensity: float = 1.0,
+    intensity_map: Dict[str, float] | None = None,
     vehicle_sigma: float = 0.5,
 ):
     """Within-episode regime switching: the episode is partitioned into
@@ -152,7 +153,8 @@ def write_switching_trips(
         t1 = min(sim_end, t0 + segment_len_s)
         choices = [r for r in REGIMES if r != prev]
         regime = choices[int(rng.integers(0, len(choices)))]
-        seg_flows = generate_regime_flows(regime, grid_n, t1 - t0, rng, intensity)
+        seg_intensity = (intensity_map or {}).get(regime, intensity)
+        seg_flows = generate_regime_flows(regime, grid_n, t1 - t0, rng, seg_intensity)
         for f in seg_flows:
             f = dict(f)
             f["fid"] = f"seg{len(schedule)}_{f['fid']}"

@@ -30,6 +30,8 @@ def parse_args():
                         help='Truncate training episodes after N consecutive gridlocked env steps (0 = off)')
     parser.add_argument('--regime-intensity', type=float, default=1.0,
                         help='Global multiplier on regime flow rates')
+    parser.add_argument('--regime-intensity-map', type=str, default=None,
+                        help='Per-regime intensity overrides, e.g. "cross:2,platoons:8,bursty:6"')
 
     # Gated spatio-temporal model (AAMAS)
     parser.add_argument('--lambda-mem', type=float, default=0.01, help='Sparsity cost on memory gate')
@@ -39,8 +41,10 @@ def parse_args():
     parser.add_argument('--gate-cost-warmup-eps', type=int, default=30,
                         help='Episodes before gate sparsity cost is enabled')
     parser.add_argument('--gate-budget', type=float, default=-1.0,
-                        help='If >=0: target gate activation rate rho; cost becomes '
-                             'lambda*(mean_gate - rho)^2 per gate instead of L1-toward-zero')
+                        help='If >=0: gate activation budget rho (see --gate-budget-mode)')
+    parser.add_argument('--gate-budget-mode', type=str, default='cap', choices=['cap', 'target'],
+                        help='cap: penalise only usage above rho (gates may close freely); '
+                             'target: two-sided (mean_gate - rho)^2 (forces ~rho usage)')
     parser.add_argument('--ckpt-every', type=int, default=20,
                         help='Save resumable training state every N episodes (0 = off)')
     parser.add_argument('--gui', action='store_true')

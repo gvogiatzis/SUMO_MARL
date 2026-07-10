@@ -83,6 +83,7 @@ class SumoGridMARLRandomEnv:
         # Demand regime (None = original random fringe-to-fringe flows)
         regime: str | None = None,           # regime name | "mixed" | "switching"
         regime_intensity: float = 1.0,       # global multiplier on regime flow rates
+        regime_intensity_map: dict | None = None,  # per-regime overrides, e.g. {"cross": 2.0}
         segment_steps: int = 150,            # switching: segment length in env steps
         # Gridlock truncation (training-time): with teleport disabled, a fully
         # deadlocked grid can never recover — end the episode instead of
@@ -121,6 +122,7 @@ class SumoGridMARLRandomEnv:
                 raise ValueError(f"Unknown regime '{regime}'; expected 'mixed', 'switching' or one of {REGIMES}")
         self.regime = regime
         self.regime_intensity = float(regime_intensity)
+        self.regime_intensity_map = dict(regime_intensity_map) if regime_intensity_map else None
         self.segment_steps = int(segment_steps)
         self.regime_schedule: list = []  # [(t_start_s, t_end_s, regime)] for the current episode
         self.gridlock_patience = int(gridlock_patience)
@@ -410,6 +412,7 @@ class SumoGridMARLRandomEnv:
                 rng=self._rng,
                 segment_len_s=float(self.segment_steps * self.sumo_steps_per_env_step) * self.step_length_internal,
                 intensity=self.regime_intensity,
+                intensity_map=self.regime_intensity_map,
             )
             self._duaroute_trips_to_routes()
             return
@@ -417,13 +420,14 @@ class SumoGridMARLRandomEnv:
         if regime == "mixed":
             regime = REGIMES[int(self._rng.integers(0, len(REGIMES)))]
         self.regime_schedule = [(0.0, total_time, regime)]
+        eff_intensity = (self.regime_intensity_map or {}).get(regime, self.regime_intensity)
         write_regime_trips(
             self.trip_file,
             regime=regime,
             grid_n=self.grid_n,
             sim_end=total_time,
             rng=self._rng,
-            intensity=self.regime_intensity,
+            intensity=eff_intensity,
         )
         self._duaroute_trips_to_routes()
 

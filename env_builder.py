@@ -12,6 +12,17 @@ from sumo_marl_fixed_routes_env import SumoGridMARLFixedEnv
 
 # =============================== Env builders (TRAIN=random, EVAL=fixed) ===============================
 
+def parse_intensity_map(spec):
+    """'cross:2,platoons:8' -> {'cross': 2.0, 'platoons': 8.0}"""
+    if not spec:
+        return None
+    out = {}
+    for part in str(spec).split(","):
+        k, v = part.split(":")
+        out[k.strip()] = float(v)
+    return out
+
+
 def build_train_env(args):
     """
     TRAINING: always use random-flow environment (SumoGridMARLFixedEnv).
@@ -25,6 +36,7 @@ def build_train_env(args):
         sumo_steps_per_env_step=args.sumo_steps_per_env_step,
         regime=getattr(args, "regime", None),
         regime_intensity=getattr(args, "regime_intensity", 1.0),
+        regime_intensity_map=parse_intensity_map(getattr(args, "regime_intensity_map", None)),
         segment_steps=getattr(args, "segment_steps", 150),
         gridlock_patience=getattr(args, "gridlock_patience", 0),
         seed=args.seed,

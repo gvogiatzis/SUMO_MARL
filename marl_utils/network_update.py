@@ -3224,6 +3224,7 @@ def dqn_update_shared_gated(
     lambda_mem: float = 0.0,
     lambda_com: float = 0.0,
     gate_budget: float = -1.0,
+    gate_budget_onesided: bool = False,
 ):
     """Double-DQN sequence update for GatedSpatioTemporalQ, with module-use
     penalties on the soft gate probabilities: L1-toward-zero by default, or a
@@ -3292,7 +3293,14 @@ def dqn_update_shared_gated(
     mean_g_com = G_seq[..., 1].mean()
     if gate_budget >= 0.0:
         rho = gate_budget
-        loss = td_loss + lambda_mem * (mean_g_mem - rho) ** 2 + lambda_com * (mean_g_com - rho) ** 2
+        if gate_budget_onesided:
+            # budget as a CAP: only over-spending is penalised; gates may close freely
+            loss = (td_loss
+                    + lambda_mem * torch.relu(mean_g_mem - rho) ** 2
+                    + lambda_com * torch.relu(mean_g_com - rho) ** 2)
+        else:
+            # budget as a TARGET: under-spending is penalised too (forces ~rho usage)
+            loss = td_loss + lambda_mem * (mean_g_mem - rho) ** 2 + lambda_com * (mean_g_com - rho) ** 2
     else:
         loss = td_loss + lambda_mem * mean_g_mem + lambda_com * mean_g_com
 

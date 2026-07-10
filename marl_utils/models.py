@@ -800,12 +800,17 @@ class GatedSpatioTemporalQ(nn.Module):
         ])
         self.lstm = nn.LSTM(input_size=hidden, hidden_size=hidden, batch_first=True)
 
-        self.gate_mlp = nn.Sequential(
-            nn.Linear(2 * hidden, hidden // 2), nn.ReLU(),
-            nn.Linear(hidden // 2, 2),
-        )
-        # start with gates open so memory/comm pathways can learn before the cost bites
-        nn.init.constant_(self.gate_mlp[-1].bias, gate_bias_init)
+        # separate gate networks: no shared trunk, so mem/com gates can differentiate
+        def _gate_head():
+            head = nn.Sequential(
+                nn.Linear(2 * hidden, hidden // 2), nn.ReLU(),
+                nn.Linear(hidden // 2, 1),
+            )
+            # start open so the pathway can learn before the cost bites
+            nn.init.constant_(head[-1].bias, gate_bias_init)
+            return head
+        self.gate_mem_mlp = _gate_head()
+        self.gate_com_mlp = _gate_head()
 
         self.W_mem = nn.Linear(hidden, hidden)
         self.W_com = nn.Linear(hidden, hidden)
@@ -863,7 +868,8 @@ class GatedSpatioTemporalQ(nn.Module):
             h_init = torch.zeros(B, 1, N, self.hidden, device=X_seq.device)
         h_prev = torch.cat([h_init, h_seq[:, :-1]], dim=1)             # [B,T,N,H]
 
-        logits = self.gate_mlp(torch.cat([e_seq, h_prev], dim=-1))     # [B,T,N,2]
+        gate_in = torch.cat([e_seq, h_prev], dim=-1)
+        logits = torch.cat([self.gate_mem_mlp(gate_in), self.gate_com_mlp(gate_in)], dim=-1)  # [B,T,N,2]
         g_used, g_soft = self._gate(logits)
         g_mem, g_com = g_used[..., 0:1], g_used[..., 1:2]
 

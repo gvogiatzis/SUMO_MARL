@@ -218,6 +218,7 @@ def run_training(args):
                     lambda_mem=lam_mem,
                     lambda_com=lam_com,
                     gate_budget=args.gate_budget,
+                    gate_budget_onesided=(args.gate_budget_mode == "cap"),
                 )
                 losses.append(td_val)
                 gmems.append(g_mem)
