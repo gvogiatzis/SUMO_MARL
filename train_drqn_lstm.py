@@ -15,6 +15,7 @@ from marl_utils.common import (
     EvalHistory,
     clear_eval_history
 )
+from marl_utils.checkpointing import TrainingCheckpoint
 from env_builder import build_train_env, get_or_create_eval_pool
 
 # --------------------------- Evaluation (shared LSTM) ---------------------------
@@ -120,9 +121,16 @@ def run_training(args):
     run_name = "drqn_lstm_shared_seqlen" + str(args.seq_len)
 
     # delete the previously left eval log files
-    clear_eval_history(args.logdir + '_grid_' + str(args.grid_n), run_name, args.seed)
+    ckpt = TrainingCheckpoint(args.logdir, args.grid_n, args.seed, run_name, every=args.ckpt_every)
+    _resume = ckpt.resume(shared_q_net, target_q_net, optimizer_q, seq_replay)
+    if _resume["resumed"]:
+        exploration_epsilon = _resume["eps"]
+        best_eval_return = _resume["best"]
+        total_steps_collected = _resume["extra"].get("total_steps", 0)
+    else:
+        clear_eval_history(args.logdir + '_grid_' + str(args.grid_n), run_name, args.seed)
 
-    for episode_idx in range(1, args.episodes + 1):
+    for episode_idx in range(_resume["start_episode"], args.episodes + 1):
         obs_dict = train_env.reset()
         done_flag = False
         steps_this_ep = 0
@@ -222,6 +230,8 @@ def run_training(args):
         # # (Optional) hard sync every few episodes as a safety net
         # if ep % args.target_sync_ep == 0:
         #     target_q_net.load_state_dict(shared_q_net.state_dict())
+
+        ckpt.maybe_save(episode_idx, shared_q_net, target_q_net, optimizer_q, seq_replay, exploration_epsilon, best_eval_return, extra={'total_steps': total_steps_collected})
 
     train_env.close()
 

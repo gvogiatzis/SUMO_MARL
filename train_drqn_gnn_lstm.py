@@ -16,6 +16,7 @@ from marl_utils.common import (
     clear_eval_history,
     build_grid_edge_index,
 )
+from marl_utils.checkpointing import TrainingCheckpoint
 from env_builder import build_train_env, get_or_create_eval_pool
 
 # ------------------------- Evaluation (greedy) -------------------------
@@ -116,9 +117,16 @@ def run_training(args):
     total_steps = 0
     run_name = "drqn_gnn_lstm_shared_seqlen" + str(args.seq_len)
 
-    clear_eval_history(args.logdir + '_grid_' + str(args.grid_n), run_name, args.seed)
+    ckpt = TrainingCheckpoint(args.logdir, args.grid_n, args.seed, run_name, every=args.ckpt_every)
+    _resume = ckpt.resume(online_q, target_q, optim_q, seq_replay)
+    if _resume["resumed"]:
+        eps = _resume["eps"]
+        best_eval_return = _resume["best"]
+        total_steps = _resume["extra"].get("total_steps", 0)
+    else:
+        clear_eval_history(args.logdir + '_grid_' + str(args.grid_n), run_name, args.seed)
 
-    for ep_idx in range(1, args.episodes + 1):
+    for ep_idx in range(_resume["start_episode"], args.episodes + 1):
         obs_dict = train_env.reset()
         done = False
         steps_this_ep = 0
@@ -210,6 +218,8 @@ def run_training(args):
             eps = max(args.eps_end, eps * args.eps_decay)
         else:
             print(f"[ep {ep_idx}] total steps={total_steps} (warming up) eps={eps:.3f}")
+
+        ckpt.maybe_save(ep_idx, online_q, target_q, optim_q, seq_replay, eps, best_eval_return, extra={'total_steps': total_steps})
 
     train_env.close()
 

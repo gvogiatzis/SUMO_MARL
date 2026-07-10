@@ -16,6 +16,7 @@ from marl_utils.common import (
     EvalHistory,
     clear_eval_history
 )
+from marl_utils.checkpointing import TrainingCheckpoint
 from env_builder import build_train_env, get_or_create_eval_pool
 
 # --------- evaluation (greedy over cached fixed-route envs) ----------
@@ -112,9 +113,16 @@ def run_training(args):
     run_name = "dqn_mlp_shared"
 
     # delete the previously left eval log files
-    clear_eval_history(args.logdir + '_grid_' + str(args.grid_n), run_name, args.seed)
+    ckpt = TrainingCheckpoint(args.logdir, args.grid_n, args.seed, run_name, every=args.ckpt_every)
+    _resume = ckpt.resume(shared_q_network, target_q_network, optimizer_q, shared_replay_buffer)
+    if _resume["resumed"]:
+        exploration_epsilon = _resume["eps"]
+        best_eval_return = _resume["best"]
+        total_env_steps_collected = _resume["extra"].get("total_steps", 0)
+    else:
+        clear_eval_history(args.logdir + '_grid_' + str(args.grid_n), run_name, args.seed)
 
-    for episode_idx in range(1, args.episodes + 1):
+    for episode_idx in range(_resume["start_episode"], args.episodes + 1):
         observation_dict = train_env.reset()
         episode_done_flag = False
         steps_this_episode = 0
@@ -191,6 +199,8 @@ def run_training(args):
         # if episode_idx % args.target_sync_ep == 0:
         #     target_q_network.load_state_dict(shared_q_network.state_dict())
 
+
+        ckpt.maybe_save(episode_idx, shared_q_network, target_q_network, optimizer_q, shared_replay_buffer, exploration_epsilon, best_eval_return, extra={'total_steps': total_env_steps_collected})
 
     train_env.close()
 

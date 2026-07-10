@@ -65,6 +65,7 @@ results = modal.Volume.from_name("sumo-marl-results", create_if_missing=True)
     timeout=60 * 60 * 12,
     cpu=4,
     memory=8192,
+    retries=modal.Retries(max_retries=3, initial_delay=10.0, backoff_coefficient=2.0),
 )
 def train(script: str, args: str, run_tag: str, logdir: str = ""):
     """Run one training script; sync its logdir to the results volume."""
@@ -82,6 +83,7 @@ def train(script: str, args: str, run_tag: str, logdir: str = ""):
     timeout=60 * 60 * 12,
     cpu=4,
     memory=8192,
+    retries=modal.Retries(max_retries=3, initial_delay=10.0, backoff_coefficient=2.0),
 )
 def run_script(script: str, args: str):
     """Run any repo script verbatim (evaluation, table generation, ...)."""

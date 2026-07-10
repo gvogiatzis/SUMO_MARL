@@ -31,6 +31,8 @@ def parse_args():
     parser.add_argument('--gate-temp-end', type=float, default=0.5, help='Gumbel-sigmoid temperature at end')
     parser.add_argument('--gate-cost-warmup-eps', type=int, default=30,
                         help='Episodes before gate sparsity cost is enabled')
+    parser.add_argument('--ckpt-every', type=int, default=20,
+                        help='Save resumable training state every N episodes (0 = off)')
     parser.add_argument('--gui', action='store_true')
     parser.add_argument('--gui-delay-ms', type=int, default=0)
     parser.add_argument('--logdir', type=str, default='logs')
