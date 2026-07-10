@@ -36,8 +36,8 @@ def build_train_env(args):
 #     trip_dir = Path(f"./eval_trips_grid_{grid_n}_len{env_ep_length}")
 #     return sorted(trip_dir.glob("*.xml"))
 
-def list_trip_files_for_grid(grid_n: int) -> List[Path]:
-    trip_dir = Path(f"./eval_trips_grid_{grid_n}")
+def list_trip_files_for_grid(grid_n: int, eval_trips_dir: str | None = None) -> List[Path]:
+    trip_dir = Path(eval_trips_dir) if eval_trips_dir else Path(f"./eval_trips_grid_{grid_n}")
     return sorted(trip_dir.glob("*.xml"))
 
 class EvalEnvPool:
@@ -53,7 +53,7 @@ class EvalEnvPool:
     def from_args(cls, args) -> "EvalEnvPool":
         # eval_ep_length = args.episode_steps * args.sumo_steps_per_env_step
         # trip_paths = list_trip_files_for_grid(args.grid_n, eval_ep_length)
-        trip_paths = list_trip_files_for_grid(args.grid_n)
+        trip_paths = list_trip_files_for_grid(args.grid_n, getattr(args, "eval_trips_dir", None))
         if not trip_paths:
             raise FileNotFoundError(f"No *.xml trip files in {trips_dir_for_grid(args.grid_n).resolve()}")
         envs: List[SumoGridMARLFixedEnv] = []
@@ -94,7 +94,7 @@ def get_or_create_eval_pool(args) -> EvalEnvPool:
     Cache key uses the settings that affect env construction.
     If any of these change, a new pool is built.
     """
-    key = (args.grid_n, args.episode_steps, args.sumo_steps_per_env_step, bool(args.gui), int(args.gui_delay_ms), int(args.seed))
+    key = (args.grid_n, args.episode_steps, args.sumo_steps_per_env_step, bool(args.gui), int(args.gui_delay_ms), int(args.seed), getattr(args, "eval_trips_dir", None))
     pool = _EVAL_POOLS.get(key)
     if pool is None:
         pool = EvalEnvPool.from_args(args)

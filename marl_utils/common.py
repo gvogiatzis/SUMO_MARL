@@ -24,6 +24,8 @@ def parse_args():
                              '(default: original random flows)')
     parser.add_argument('--segment-steps', type=int, default=150,
                         help='Switching regime: segment length in env steps')
+    parser.add_argument('--eval-trips-dir', type=str, default=None,
+                        help='Directory of fixed eval trip files (default: eval_trips_grid_{N})')
     parser.add_argument('--gridlock-patience', type=int, default=0,
                         help='Truncate training episodes after N consecutive gridlocked env steps (0 = off)')
     parser.add_argument('--regime-intensity', type=float, default=1.0,
