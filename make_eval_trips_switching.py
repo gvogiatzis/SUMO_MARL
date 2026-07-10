@@ -27,6 +27,8 @@ def main():
     ap.add_argument("--step-length", type=float, default=1.0)
     ap.add_argument("--segment-steps", type=int, default=150)
     ap.add_argument("--intensity", type=float, default=3.0)
+    ap.add_argument("--intensity-map", type=str, default=None,
+                    help='Per-regime overrides, e.g. "cross:1.5,platoons:9"')
     ap.add_argument("--n-cases", type=int, default=10)
     ap.add_argument("--base-seed", type=int, default=7000)
     ap.add_argument("--out-dir", type=str, default=None,
@@ -43,6 +45,9 @@ def main():
     for i in range(args.n_cases):
         rng = np.random.default_rng(args.base_seed + i)
         fname = f"case_{i:02d}.xml"
+        imap = None
+        if args.intensity_map:
+            imap = {k.strip(): float(v) for k, v in (kv.split(":") for kv in args.intensity_map.split(","))}
         schedule = write_switching_trips(
             str(out / fname),
             grid_n=args.grid_n,
@@ -50,6 +55,7 @@ def main():
             rng=rng,
             segment_len_s=seg_len,
             intensity=args.intensity,
+            intensity_map=imap,
         )
         schedules[fname] = [(float(a), float(b), r) for a, b, r in schedule]
         print(f"{fname}: {[r for _, _, r in schedule]}")
@@ -60,6 +66,7 @@ def main():
         "sumo_steps_per_env_step": args.sumo_steps_per_env_step,
         "segment_steps": args.segment_steps,
         "intensity": args.intensity,
+        "intensity_map": args.intensity_map,
         "base_seed": args.base_seed,
         "schedules": schedules,
     }
