@@ -129,3 +129,39 @@ def write_regime_trips(
     """Write one episode's regime flows as a SUMO trips/flows XML file."""
     flows = generate_regime_flows(regime, grid_n, sim_end, rng, intensity)
     write_case(path, flows, vehicle_sigma=vehicle_sigma)
+
+
+def write_switching_trips(
+    path: str,
+    grid_n: int,
+    sim_end: float,
+    rng: np.random.Generator,
+    segment_len_s: float,
+    intensity: float = 1.0,
+    vehicle_sigma: float = 0.5,
+):
+    """Within-episode regime switching: the episode is partitioned into
+    consecutive segments of ~segment_len_s, each with demand from one regime
+    (uniformly sampled, no immediate repeats). Returns the schedule as a list
+    of (t_start_s, t_end_s, regime) for gate-analysis alignment."""
+    flows: List[dict] = []
+    schedule: List[tuple] = []
+    t0 = 0.0
+    prev = None
+    while t0 < sim_end:
+        t1 = min(sim_end, t0 + segment_len_s)
+        choices = [r for r in REGIMES if r != prev]
+        regime = choices[int(rng.integers(0, len(choices)))]
+        seg_flows = generate_regime_flows(regime, grid_n, t1 - t0, rng, intensity)
+        for f in seg_flows:
+            f = dict(f)
+            f["fid"] = f"seg{len(schedule)}_{f['fid']}"
+            f["begin"] = float(f["begin"]) + t0
+            f["end"] = min(float(f["end"]) + t0, t1)
+            if f["end"] > f["begin"]:
+                flows.append(f)
+        schedule.append((t0, t1, regime))
+        prev = regime
+        t0 = t1
+    write_case(path, flows, vehicle_sigma=vehicle_sigma)
+    return schedule

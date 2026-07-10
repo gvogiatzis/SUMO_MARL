@@ -18,9 +18,12 @@ def parse_args():
     parser.add_argument('--episode-steps', type=int, default=200)
     parser.add_argument('--sumo-steps-per-env-step', type=int, default=5)
     parser.add_argument('--regime', type=str, default=None,
-                        choices=['corridor', 'cross', 'platoons', 'bursty', 'mixed'],
-                        help='Regime-conditioned training demand; "mixed" samples a regime per episode '
+                        choices=['corridor', 'cross', 'platoons', 'bursty', 'mixed', 'switching'],
+                        help='Regime-conditioned training demand; "mixed" samples a regime per episode, '
+                             '"switching" changes regime within the episode every --segment-steps '
                              '(default: original random flows)')
+    parser.add_argument('--segment-steps', type=int, default=150,
+                        help='Switching regime: segment length in env steps')
     parser.add_argument('--regime-intensity', type=float, default=1.0,
                         help='Global multiplier on regime flow rates')
 
@@ -31,6 +34,9 @@ def parse_args():
     parser.add_argument('--gate-temp-end', type=float, default=0.5, help='Gumbel-sigmoid temperature at end')
     parser.add_argument('--gate-cost-warmup-eps', type=int, default=30,
                         help='Episodes before gate sparsity cost is enabled')
+    parser.add_argument('--gate-budget', type=float, default=-1.0,
+                        help='If >=0: target gate activation rate rho; cost becomes '
+                             'lambda*(mean_gate - rho)^2 per gate instead of L1-toward-zero')
     parser.add_argument('--ckpt-every', type=int, default=20,
                         help='Save resumable training state every N episodes (0 = off)')
     parser.add_argument('--gui', action='store_true')

@@ -217,6 +217,7 @@ def run_training(args):
                     grad_clip=1.0,
                     lambda_mem=lam_mem,
                     lambda_com=lam_com,
+                    gate_budget=args.gate_budget,
                 )
                 losses.append(td_val)
                 gmems.append(g_mem)

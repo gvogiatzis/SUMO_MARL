@@ -25,6 +25,7 @@ def build_train_env(args):
         sumo_steps_per_env_step=args.sumo_steps_per_env_step,
         regime=getattr(args, "regime", None),
         regime_intensity=getattr(args, "regime_intensity", 1.0),
+        segment_steps=getattr(args, "segment_steps", 150),
         seed=args.seed,
         verbose=False,
         suppress_sumo_output=True,

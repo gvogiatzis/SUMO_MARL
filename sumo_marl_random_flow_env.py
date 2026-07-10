@@ -81,8 +81,9 @@ class SumoGridMARLRandomEnv:
         min_flow_rate_vph: float = 100.0,
         max_flow_rate_vph: float = 2500.0,
         # Demand regime (None = original random fringe-to-fringe flows)
-        regime: str | None = None,           # "corridor" | "cross" | "platoons" | "bursty"
+        regime: str | None = None,           # regime name | "mixed" | "switching"
         regime_intensity: float = 1.0,       # global multiplier on regime flow rates
+        segment_steps: int = 150,            # switching: segment length in env steps
         # General options:
         seed: int = 42,
         gui: bool = False,
@@ -110,10 +111,12 @@ class SumoGridMARLRandomEnv:
         self.max_flow_rate_vph = max_flow_rate_vph
         if regime is not None:
             from marl_utils.demand_regimes import REGIMES
-            if regime != "mixed" and regime not in REGIMES:
-                raise ValueError(f"Unknown regime '{regime}'; expected 'mixed' or one of {REGIMES}")
+            if regime not in ("mixed", "switching") and regime not in REGIMES:
+                raise ValueError(f"Unknown regime '{regime}'; expected 'mixed', 'switching' or one of {REGIMES}")
         self.regime = regime
         self.regime_intensity = float(regime_intensity)
+        self.segment_steps = int(segment_steps)
+        self.regime_schedule: list = []  # [(t_start_s, t_end_s, regime)] for the current episode
         self.seed = seed
         if gui and SUMO_BACKEND == "libsumo":
             raise RuntimeError("sumo-gui requires the traci backend: set SUMO_MARL_BACKEND=traci")
@@ -387,11 +390,23 @@ class SumoGridMARLRandomEnv:
     def _generate_regime_routes_for_episode(self):
         """Regime-conditioned demand: fresh draw from the episode RNG each reset.
         regime="mixed" samples one of the four regimes per episode."""
-        from marl_utils.demand_regimes import write_regime_trips, REGIMES
+        from marl_utils.demand_regimes import write_regime_trips, write_switching_trips, REGIMES
+        total_time = float(self.episode_steps * self.sumo_steps_per_env_step) * self.step_length_internal
+        if self.regime == "switching":
+            self.regime_schedule = write_switching_trips(
+                self.trip_file,
+                grid_n=self.grid_n,
+                sim_end=total_time,
+                rng=self._rng,
+                segment_len_s=float(self.segment_steps * self.sumo_steps_per_env_step) * self.step_length_internal,
+                intensity=self.regime_intensity,
+            )
+            self._duaroute_trips_to_routes()
+            return
         regime = self.regime
         if regime == "mixed":
             regime = REGIMES[int(self._rng.integers(0, len(REGIMES)))]
-        total_time = float(self.episode_steps * self.sumo_steps_per_env_step) * self.step_length_internal
+        self.regime_schedule = [(0.0, total_time, regime)]
         write_regime_trips(
             self.trip_file,
             regime=regime,

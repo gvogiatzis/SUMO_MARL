@@ -3223,9 +3223,11 @@ def dqn_update_shared_gated(
     grad_clip: float = 1.0,
     lambda_mem: float = 0.0,
     lambda_com: float = 0.0,
+    gate_budget: float = -1.0,
 ):
     """Double-DQN sequence update for GatedSpatioTemporalQ, with module-use
-    sparsity penalties on the soft gate probabilities.
+    penalties on the soft gate probabilities: L1-toward-zero by default, or a
+    target-rate budget cost lambda*(mean_gate - rho)^2 when gate_budget >= 0.
 
     Returns (total_loss, td_loss, mean_g_mem, mean_g_com).
     """
@@ -3288,7 +3290,11 @@ def dqn_update_shared_gated(
     td_loss = nn.functional.smooth_l1_loss(Q_taken, target)
     mean_g_mem = G_seq[..., 0].mean()
     mean_g_com = G_seq[..., 1].mean()
-    loss = td_loss + lambda_mem * mean_g_mem + lambda_com * mean_g_com
+    if gate_budget >= 0.0:
+        rho = gate_budget
+        loss = td_loss + lambda_mem * (mean_g_mem - rho) ** 2 + lambda_com * (mean_g_com - rho) ** 2
+    else:
+        loss = td_loss + lambda_mem * mean_g_mem + lambda_com * mean_g_com
 
     optimizer_q.zero_grad()
     loss.backward()
