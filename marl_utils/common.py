@@ -18,8 +18,9 @@ def parse_args():
     parser.add_argument('--episode-steps', type=int, default=200)
     parser.add_argument('--sumo-steps-per-env-step', type=int, default=5)
     parser.add_argument('--regime', type=str, default=None,
-                        choices=['corridor', 'cross', 'platoons', 'bursty'],
-                        help='Regime-conditioned training demand (default: original random flows)')
+                        choices=['corridor', 'cross', 'platoons', 'bursty', 'mixed'],
+                        help='Regime-conditioned training demand; "mixed" samples a regime per episode '
+                             '(default: original random flows)')
     parser.add_argument('--regime-intensity', type=float, default=1.0,
                         help='Global multiplier on regime flow rates')
 

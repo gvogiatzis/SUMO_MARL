@@ -110,8 +110,8 @@ class SumoGridMARLRandomEnv:
         self.max_flow_rate_vph = max_flow_rate_vph
         if regime is not None:
             from marl_utils.demand_regimes import REGIMES
-            if regime not in REGIMES:
-                raise ValueError(f"Unknown regime '{regime}'; expected one of {REGIMES}")
+            if regime != "mixed" and regime not in REGIMES:
+                raise ValueError(f"Unknown regime '{regime}'; expected 'mixed' or one of {REGIMES}")
         self.regime = regime
         self.regime_intensity = float(regime_intensity)
         self.seed = seed
@@ -385,12 +385,16 @@ class SumoGridMARLRandomEnv:
         self._duaroute_trips_to_routes()
 
     def _generate_regime_routes_for_episode(self):
-        """Regime-conditioned demand: fresh draw from the episode RNG each reset."""
-        from marl_utils.demand_regimes import write_regime_trips
+        """Regime-conditioned demand: fresh draw from the episode RNG each reset.
+        regime="mixed" samples one of the four regimes per episode."""
+        from marl_utils.demand_regimes import write_regime_trips, REGIMES
+        regime = self.regime
+        if regime == "mixed":
+            regime = REGIMES[int(self._rng.integers(0, len(REGIMES)))]
         total_time = float(self.episode_steps * self.sumo_steps_per_env_step) * self.step_length_internal
         write_regime_trips(
             self.trip_file,
-            regime=self.regime,
+            regime=regime,
             grid_n=self.grid_n,
             sim_end=total_time,
             rng=self._rng,

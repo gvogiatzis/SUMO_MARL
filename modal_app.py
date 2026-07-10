@@ -108,6 +108,9 @@ def phase1(
     seeds: str = "42,43,44",
     episodes: int = 200,
     methods: str = "dqn_mlp,drqn_lstm,dqn_gnn,drqn_gnn_lstm",
+    regime: str = "",
+    extra_args: str = "",
+    tag: str = "phase1",
 ):
     """Spawn the Phase 1 training matrix, detached. Run with `modal run --detach`.
 
@@ -123,11 +126,15 @@ def phase1(
                 args = f"--grid-n {grid_n} --seed {seed} --episodes {episodes} --device cpu"
                 if margs:
                     args += f" {margs}"
+                if regime:
+                    args += f" --regime {regime}"
+                if extra_args:
+                    args += f" {extra_args}"
                 # logdir is a prefix: scripts append _grid_{N}/seed{S}/
                 handle = train.spawn(
                     script, args,
-                    run_tag=f"phase1/{m}_grid{grid_n}_seed{seed}",
-                    logdir="/results/phase1/logs",
+                    run_tag=f"{tag}/{m}_grid{grid_n}_seed{seed}",
+                    logdir=f"/results/{tag}/logs",
                 )
                 calls.append((m, grid_n, seed, handle.object_id))
                 print(f"spawned {m} grid={grid_n} seed={seed} -> {handle.object_id}")
