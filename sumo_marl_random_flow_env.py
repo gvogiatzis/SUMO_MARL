@@ -84,6 +84,12 @@ class SumoGridMARLRandomEnv:
         regime: str | None = None,           # regime name | "mixed" | "switching"
         regime_intensity: float = 1.0,       # global multiplier on regime flow rates
         segment_steps: int = 150,            # switching: segment length in env steps
+        # Gridlock truncation (training-time): with teleport disabled, a fully
+        # deadlocked grid can never recover — end the episode instead of
+        # simulating the remaining steps. 0 = off.
+        gridlock_patience: int = 0,          # consecutive env steps of gridlock before truncating
+        gridlock_min_vehicles: int = 50,     # only consider gridlock above this active count
+        gridlock_halt_frac: float = 0.95,    # fraction of active vehicles halted to count as gridlock
         # General options:
         seed: int = 42,
         gui: bool = False,
@@ -117,6 +123,10 @@ class SumoGridMARLRandomEnv:
         self.regime_intensity = float(regime_intensity)
         self.segment_steps = int(segment_steps)
         self.regime_schedule: list = []  # [(t_start_s, t_end_s, regime)] for the current episode
+        self.gridlock_patience = int(gridlock_patience)
+        self.gridlock_min_vehicles = int(gridlock_min_vehicles)
+        self.gridlock_halt_frac = float(gridlock_halt_frac)
+        self._gridlock_streak = 0
         self.seed = seed
         if gui and SUMO_BACKEND == "libsumo":
             raise RuntimeError("sumo-gui requires the traci backend: set SUMO_MARL_BACKEND=traci")
@@ -434,6 +444,7 @@ class SumoGridMARLRandomEnv:
 
     # ---------------------- KPI helpers ----------------------
     def _kpi_reset(self):
+        self._gridlock_streak = 0
         self._kpi_completed = 0
         self._kpi_total_travel_time = 0.0
         self._kpi_total_waiting_time = 0.0
@@ -545,10 +556,14 @@ class SumoGridMARLRandomEnv:
 
             # --- update custom waiting accumulator for vehicles currently present ---
             # We define "waiting" as nearly stopped: speed < 0.1 m/s
+            n_present = 0
+            n_halted = 0
             try:
                 for vid in traci.vehicle.getIDList():
+                    n_present += 1
                     try:
                         if float(traci.vehicle.getSpeed(vid)) < 0.1:
+                            n_halted += 1
                             self._veh_wait_custom[vid] = self._veh_wait_custom.get(vid, 0.0) + dt
                         else:
                             # ensure key exists so active vehicles are included in "all vehicles" stats
@@ -624,7 +639,18 @@ class SumoGridMARLRandomEnv:
         mean_wait_all = ((self._kpi_total_waiting_time + sum_active_wait) / total_veh) if total_veh > 0 else 0.0
 
         done = self._step_count >= self.episode_steps
+        truncated_gridlock = False
+        if self.gridlock_patience > 0:
+            # counts from the last internal SUMO step of this env step
+            if n_present >= self.gridlock_min_vehicles and n_halted >= self.gridlock_halt_frac * n_present:
+                self._gridlock_streak += 1
+            else:
+                self._gridlock_streak = 0
+            if self._gridlock_streak >= self.gridlock_patience:
+                done = True
+                truncated_gridlock = True
         info = {
+            "truncated_gridlock": truncated_gridlock,
             "network_kpis": {
                 "completed_vehicles": int(completed),
                 "active_vehicles": int(active),
