@@ -3207,3 +3207,92 @@ def soft_update(target: torch.nn.Module, online: torch.nn.Module, tau: float = 0
     """Polyak averaging: target <- tau * online + (1 - tau) * target"""
     for tp, op in zip(target.parameters(), online.parameters()):
         tp.data.mul_(1.0 - tau).add_(tau * op.data)
+
+
+# ========================= Gated spatio-temporal update (AAMAS model) =========================
+def dqn_update_shared_gated(
+    device: torch.device,
+    online_q,
+    target_q,
+    optimizer_q: torch.optim.Optimizer,
+    batch_tuple,
+    edge_index: torch.Tensor,
+    gamma: float = 0.99,
+    burn_in: int = 8,
+    double_dqn: bool = True,
+    grad_clip: float = 1.0,
+    lambda_mem: float = 0.0,
+    lambda_com: float = 0.0,
+):
+    """Double-DQN sequence update for GatedSpatioTemporalQ, with module-use
+    sparsity penalties on the soft gate probabilities.
+
+    Returns (total_loss, td_loss, mean_g_mem, mean_g_com).
+    """
+    S, A, R, NS, D = batch_tuple
+    S  = torch.as_tensor(S,  device=device, dtype=torch.float32)
+    NS = torch.as_tensor(NS, device=device, dtype=torch.float32)
+    A  = torch.as_tensor(A,  device=device, dtype=torch.long)
+    R  = torch.as_tensor(R,  device=device, dtype=torch.float32)
+    D  = torch.as_tensor(D,  device=device, dtype=torch.float32)
+    if D.dim() == 2:
+        D = D.unsqueeze(-1).expand(-1, -1, S.size(2))
+
+    B, T, N, O = S.shape
+    burn = min(max(int(burn_in), 0), max(T - 1, 0))
+    Ei = edge_index.to(device)
+
+    with torch.no_grad():
+        h_online = h_target = None
+        if burn > 0:
+            _, h_online, _ = online_q(S[:, :burn], Ei, None)
+            _, h_target, _ = target_q(NS[:, :burn], Ei, None)
+
+    S_w, NS_w = S[:, burn:], NS[:, burn:]
+    A_w, R_w, D_w = A[:, burn:], R[:, burn:], D[:, burn:]
+    Tw = S_w.size(1)
+
+    h_o, h_t = h_online, h_target
+    q_list, qn_online_list, qn_target_list, g_list = [], [], [], []
+
+    for t in range(Tw):
+        q_t, h_o, g_t = online_q(S_w[:, t].unsqueeze(1), Ei, h_o)
+        q_list.append(q_t)
+        g_list.append(g_t)
+
+        with torch.no_grad():
+            qn_o_t, _, _ = online_q(NS_w[:, t].unsqueeze(1), Ei, h_o)
+            qn_t_t, h_t, _ = target_q(NS_w[:, t].unsqueeze(1), Ei, h_t)
+        qn_online_list.append(qn_o_t)
+        qn_target_list.append(qn_t_t)
+
+        for hpair in (h_o, h_t):
+            if hpair is not None:
+                done_mask = (1.0 - D_w[:, t]).view(1, B, N, 1)
+                h0 = hpair[0].view(1, B, N, -1); c0 = hpair[1].view(1, B, N, -1)
+                h0.mul_(done_mask); c0.mul_(done_mask)
+        # views share storage; tuples already updated in place
+
+    Q_seq = torch.cat(q_list, dim=1)
+    Qn_o = torch.cat(qn_online_list, dim=1)
+    Qn_t = torch.cat(qn_target_list, dim=1)
+    G_seq = torch.cat(g_list, dim=1)                                  # [B,Tw,N,2] soft probs
+
+    Q_taken = Q_seq.gather(-1, A_w.unsqueeze(-1)).squeeze(-1)
+
+    with torch.no_grad():
+        next_idx = torch.argmax(Qn_o, dim=-1) if double_dqn else torch.argmax(Qn_t, dim=-1)
+        Qn_star = Qn_t.gather(-1, next_idx.unsqueeze(-1)).squeeze(-1)
+        target = R_w + (1.0 - D_w) * gamma * Qn_star
+
+    td_loss = nn.functional.smooth_l1_loss(Q_taken, target)
+    mean_g_mem = G_seq[..., 0].mean()
+    mean_g_com = G_seq[..., 1].mean()
+    loss = td_loss + lambda_mem * mean_g_mem + lambda_com * mean_g_com
+
+    optimizer_q.zero_grad()
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(online_q.parameters(), grad_clip)
+    optimizer_q.step()
+
+    return float(loss.item()), float(td_loss.item()), float(mean_g_mem.item()), float(mean_g_com.item())

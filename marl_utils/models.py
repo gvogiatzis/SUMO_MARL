@@ -763,3 +763,119 @@ class CoLightQ(nn.Module):
         for blk in self.att:
             z = blk(z, edge_index)
         return self.q_head(z)
+
+# ============================== Gated spatio-temporal model (AAMAS) ==============================
+class GatedSpatioTemporalQ(nn.Module):
+    """
+    Adaptive gated spatio-temporal Q-network (the AAMAS 2027 contribution).
+
+    Per agent i and step t:
+      e_t = local encoder(o_t)
+      m_t = graph-attention aggregation of neighbour embeddings   (spatial branch)
+      h_t = LSTM over local embedding history                     (temporal branch)
+      (g_mem, g_com) = gate MLP on [e_t, h_{t-1}]                 (per-agent, per-step)
+      z_t = LayerNorm(e_t + g_mem * W_m h_t + g_com * W_c m_t) -> Q head
+
+    Gates are receive-side, Gumbel-sigmoid with straight-through hard samples
+    during training (temperature self.gate_temp, annealed by the trainer) and
+    deterministic hard thresholds in eval. forward() returns soft gate
+    probabilities [B,T,N,2] (mem, com) for sparsity penalties and logging.
+
+    Gate configuration recovers the fixed baselines: (0,0)=MLP-like local,
+    (1,0)=memory-only, (0,1)=GNN-like, (1,1)=fixed spatio-temporal.
+    """
+    def __init__(self, node_dim: int, actions: int, hidden: int = 128,
+                 gnn_layers: int = 2, gate_temp: float = 1.0, gate_bias_init: float = 1.0):
+        super().__init__()
+        self.hidden = hidden
+        self.actions = actions
+        self.gate_temp = gate_temp  # set by the trainer (annealed)
+
+        self.encoder = nn.Sequential(
+            nn.Linear(node_dim, hidden), nn.ReLU(),
+            nn.Linear(hidden, hidden), nn.ReLU(),
+        )
+        self.spatial = nn.ModuleList([
+            SimpleAttnMP(hidden, edge_dim=0, hidden=hidden) for _ in range(gnn_layers)
+        ])
+        self.lstm = nn.LSTM(input_size=hidden, hidden_size=hidden, batch_first=True)
+
+        self.gate_mlp = nn.Sequential(
+            nn.Linear(2 * hidden, hidden // 2), nn.ReLU(),
+            nn.Linear(hidden // 2, 2),
+        )
+        # start with gates open so memory/comm pathways can learn before the cost bites
+        nn.init.constant_(self.gate_mlp[-1].bias, gate_bias_init)
+
+        self.W_mem = nn.Linear(hidden, hidden)
+        self.W_com = nn.Linear(hidden, hidden)
+        self.fuse_norm = nn.LayerNorm(hidden)
+        self.head = nn.Sequential(nn.Linear(hidden, hidden), nn.ReLU(), nn.Linear(hidden, actions))
+
+    def _build_batched_edges(self, edge_index: torch.Tensor, B: int, N: int) -> torch.Tensor:
+        Ei = edge_index
+        offsets = torch.arange(B, device=Ei.device, dtype=Ei.dtype) * N
+        src = Ei[0].unsqueeze(0) + offsets.unsqueeze(1)
+        dst = Ei[1].unsqueeze(0) + offsets.unsqueeze(1)
+        return torch.stack([src.reshape(-1), dst.reshape(-1)], dim=0)
+
+    def _gate(self, logits: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Returns (g_used, g_soft). Training: Gumbel-sigmoid + straight-through."""
+        if self.training:
+            u = torch.rand_like(logits).clamp(1e-6, 1 - 1e-6)
+            noisy = (logits + torch.log(u) - torch.log1p(-u)) / max(self.gate_temp, 1e-3)
+            g_soft = torch.sigmoid(noisy)
+            g_hard = (g_soft > 0.5).float()
+            return g_hard + g_soft - g_soft.detach(), torch.sigmoid(logits)
+        g_soft = torch.sigmoid(logits)
+        return (g_soft > 0.5).float(), g_soft
+
+    def forward(
+        self,
+        X_seq: torch.Tensor,                 # [B,T,N,O]
+        edge_index: torch.Tensor,            # [2,E]
+        hidden: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+    ):
+        B, T, N, O = X_seq.shape
+        Ei = edge_index.to(X_seq.device)
+        Ei_b = self._build_batched_edges(Ei, B, N)
+
+        e_seq = self.encoder(X_seq)                                    # [B,T,N,H]
+
+        # spatial branch per timestep on local embeddings
+        m_time = []
+        for t in range(T):
+            z = e_seq[:, t].reshape(B * N, self.hidden)
+            for mp in self.spatial:
+                z = mp(z, Ei_b, edge_attr=None)
+            m_time.append(z.reshape(B, N, self.hidden).unsqueeze(1))
+        m_seq = torch.cat(m_time, dim=1)                               # [B,T,N,H]
+
+        # temporal branch: LSTM over local embeddings, per node
+        e_bn = e_seq.permute(0, 2, 1, 3).reshape(B * N, T, self.hidden)
+        h_seq_bn, new_hidden = self.lstm(e_bn, hidden)                 # [B*N,T,H]
+        h_seq = h_seq_bn.reshape(B, N, T, self.hidden).permute(0, 2, 1, 3)  # [B,T,N,H]
+
+        # h_{t-1} per step for the gate input (initial from provided hidden or zeros)
+        if hidden is not None:
+            h_init = hidden[0].reshape(B, N, self.hidden).unsqueeze(1)  # [B,1,N,H]
+        else:
+            h_init = torch.zeros(B, 1, N, self.hidden, device=X_seq.device)
+        h_prev = torch.cat([h_init, h_seq[:, :-1]], dim=1)             # [B,T,N,H]
+
+        logits = self.gate_mlp(torch.cat([e_seq, h_prev], dim=-1))     # [B,T,N,2]
+        g_used, g_soft = self._gate(logits)
+        g_mem, g_com = g_used[..., 0:1], g_used[..., 1:2]
+
+        z = self.fuse_norm(e_seq + g_mem * self.W_mem(h_seq) + g_com * self.W_com(m_seq))
+        return self.head(z), new_hidden, g_soft                        # [B,T,N,A], (h,c), [B,T,N,2]
+
+    @torch.no_grad()
+    def step(
+        self,
+        X_t: torch.Tensor,                   # [B,N,O]
+        edge_index: torch.Tensor,
+        hidden: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+    ):
+        q_seq, new_hidden, g_soft = self.forward(X_t.unsqueeze(1), edge_index, hidden)
+        return q_seq[:, 0], new_hidden, g_soft[:, 0]                   # [B,N,A], (h,c), [B,N,2]

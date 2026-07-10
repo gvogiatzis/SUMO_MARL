@@ -22,6 +22,14 @@ def parse_args():
                         help='Regime-conditioned training demand (default: original random flows)')
     parser.add_argument('--regime-intensity', type=float, default=1.0,
                         help='Global multiplier on regime flow rates')
+
+    # Gated spatio-temporal model (AAMAS)
+    parser.add_argument('--lambda-mem', type=float, default=0.01, help='Sparsity cost on memory gate')
+    parser.add_argument('--lambda-com', type=float, default=0.01, help='Sparsity cost on communication gate')
+    parser.add_argument('--gate-temp-start', type=float, default=2.0, help='Gumbel-sigmoid temperature at start')
+    parser.add_argument('--gate-temp-end', type=float, default=0.5, help='Gumbel-sigmoid temperature at end')
+    parser.add_argument('--gate-cost-warmup-eps', type=int, default=30,
+                        help='Episodes before gate sparsity cost is enabled')
     parser.add_argument('--gui', action='store_true')
     parser.add_argument('--gui-delay-ms', type=int, default=0)
     parser.add_argument('--logdir', type=str, default='logs')
