@@ -130,6 +130,12 @@ def run_training(args):
     total_steps = 0
     run_name = "gated_shared_seqlen" + str(args.seq_len)
     clear_eval_history(args.logdir + '_grid_' + str(args.grid_n), run_name, args.seed)
+    # gate histories are appended per eval; clear them too (restarts would pollute)
+    gdir = Path(args.logdir + '_grid_' + str(args.grid_n)) / f"seed{args.seed}"
+    for name in ("g_mem", "g_com"):
+        p = gdir / f"{run_name}_{name}_activation.npy"
+        if p.exists():
+            p.unlink()
 
     for ep_idx in range(1, args.episodes + 1):
         # anneal gate temperature linearly over training
