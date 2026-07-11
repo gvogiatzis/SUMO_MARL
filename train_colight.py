@@ -151,7 +151,9 @@ def run_training(args):
 
             action_dict = {aid: int(chosen_actions_np[i]) for i, aid in enumerate(agent_id_list)}
 
-            next_observation_dict, reward_dict, episode_done_flag, _ = train_env.step(action_dict)
+            next_observation_dict, reward_dict, episode_done_flag, _info = train_env.step(action_dict)
+            # truncation is a time limit, not a terminal state: bootstrap through it
+            done_stored = 0.0 if _info.get("truncated_gridlock") else float(episode_done_flag)
 
             X_next_np = np.stack([next_observation_dict[aid] for aid in agent_id_list], axis=0).astype(np.float32)  # [N, O]
             R_np = np.array([float(reward_dict[aid]) for aid in agent_id_list], dtype=np.float32)                   # [N]
@@ -162,7 +164,7 @@ def run_training(args):
                 actions_all=chosen_actions_np.astype(np.int64),
                 rewards_all=R_np,
                 next_state_all=X_next_np,
-                done_flag=float(episode_done_flag),
+                done_flag=done_stored,
             )
 
             observation_dict = next_observation_dict

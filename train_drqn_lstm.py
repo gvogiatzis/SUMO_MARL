@@ -159,7 +159,9 @@ def run_training(args):
                     chosen = greedy_action if np.random.rand() >= exploration_epsilon else int(np.random.randint(act_dim))
                     action_dict[aid] = chosen
 
-            next_obs, rew_dict, done_flag, _ = train_env.step(action_dict)
+            next_obs, rew_dict, done_flag, _info = train_env.step(action_dict)
+            # truncation is a time limit, not a terminal state: bootstrap through it
+            done_stored = 0.0 if _info.get("truncated_gridlock") else float(done_flag)
 
             # record per-agent transition into episode buffers
             for aid in agent_id_list:
@@ -167,7 +169,7 @@ def run_training(args):
                 episode_buffers[aid]["next_obs"].append(next_obs[aid])
                 episode_buffers[aid]["actions"].append(action_dict[aid])
                 episode_buffers[aid]["rewards"].append(rew_dict[aid])
-                episode_buffers[aid]["dones"].append(float(done_flag))
+                episode_buffers[aid]["dones"].append(float(done_stored))
 
             obs_dict = next_obs
             steps_this_ep += 1

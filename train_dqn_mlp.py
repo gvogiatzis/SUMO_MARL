@@ -141,7 +141,9 @@ def run_training(args):
                     chosen_actions_np[i] = np.random.randint(action_dim)
 
             action_dict = {aid: int(chosen_actions_np[i]) for i, aid in enumerate(agent_id_list)}
-            next_observation_dict, reward_dict, episode_done_flag, _ = train_env.step(action_dict)
+            next_observation_dict, reward_dict, episode_done_flag, _info = train_env.step(action_dict)
+            # truncation is a time limit, not a terminal state: bootstrap through it
+            done_stored = 0.0 if _info.get("truncated_gridlock") else float(episode_done_flag)
 
             # Push each junction's transition into the shared replay buffer
             for i, agent_id in enumerate(agent_id_list):
@@ -150,7 +152,7 @@ def run_training(args):
                     action=int(chosen_actions_np[i]),
                     reward=float(reward_dict[agent_id]),
                     next_state=next_observation_dict[agent_id],
-                    done=float(episode_done_flag),
+                    done=done_stored,
                 )
                 shared_replay_buffer.push(transition)
 
