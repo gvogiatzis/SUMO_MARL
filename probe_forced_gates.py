@@ -35,18 +35,23 @@ def main():
     ap.add_argument("--ckpt", required=True)
     ap.add_argument("--grid-n", type=int, default=3)
     ap.add_argument("--intensity", type=float, default=3.0)
+    ap.add_argument("--intensity-map", type=str, default=None)
     ap.add_argument("--episode-steps", type=int, default=450)
     ap.add_argument("--env-seeds", type=str, default="901,902")
     args = ap.parse_args()
 
     env_seeds = [int(s) for s in args.env_seeds.split(",")]
+    imap = {}
+    if args.intensity_map:
+        imap = {k.strip(): float(v) for k, v in (kv.split(":") for kv in args.intensity_map.split(","))}
     results = {}
     model = None
 
     for regime, env_seed in product(("corridor", "cross", "platoons", "bursty"), env_seeds):
         env = SumoGridMARLRandomEnv(gui=False, grid_n=args.grid_n, episode_steps=args.episode_steps,
                                     sumo_steps_per_env_step=5, seed=env_seed, regime=regime,
-                                    regime_intensity=args.intensity, suppress_sumo_output=True)
+                                    regime_intensity=imap.get(regime, args.intensity),
+                                    suppress_sumo_output=True)
         for cname, (gm, gc) in CONFIGS.items():
             obs = env.reset()  # same seed -> same trips for every config (rng re-seeded per env)
             agent_ids = list(env.agent_ids)
