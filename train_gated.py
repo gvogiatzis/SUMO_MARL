@@ -99,9 +99,16 @@ def evaluate_gated_shared(
             hist.append(val)
             np.save(p, np.array(hist, dtype=np.float32))
 
+        # record the median case return per eval (means are tip-over dominated)
+        med = float(np.median(returns_all))
+        mdir = Path(args.logdir + '_grid_' + str(args.grid_n)) / f"seed{args.seed}"
+        mp = mdir / f"{run_name}_median_return.npy"
+        hist = np.load(mp).tolist() if mp.exists() else []
+        hist.append(med)
+        np.save(mp, np.array(hist, dtype=np.float32))
         # model selection on the median case return: robust to single-case
         # congestion tip-overs that dominate the mean
-        return float(np.median(returns_all))
+        return med
     finally:
         online_q.train(original_mode)
 

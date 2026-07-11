@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import List
 import numpy as np
+from pathlib import Path
 import torch
 import torch.optim as optim
 from datetime import datetime
@@ -78,9 +79,16 @@ def evaluate_colight_shared(
         )
 
         recorder.save(avg_return, avg_throughput, avg_travel_s, avg_wait_s)
+        # record the median case return per eval (means are tip-over dominated)
+        med = float(np.median(returns_all))
+        mdir = Path(args.logdir + '_grid_' + str(args.grid_n)) / f"seed{args.seed}"
+        mp = mdir / f"{run_name}_median_return.npy"
+        hist = np.load(mp).tolist() if mp.exists() else []
+        hist.append(med)
+        np.save(mp, np.array(hist, dtype=np.float32))
         # model selection on the median case return: robust to single-case
         # congestion tip-overs that dominate the mean
-        return float(np.median(returns_all))
+        return med
     finally:
         shared_q_network.train(original_mode)
 
