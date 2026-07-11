@@ -85,7 +85,9 @@ def evaluate_idrqn_lstm_shared(args,
             f"mean travel time={avg_mtt:.2f}s | avg waiting time={avg_mwt:.2f}s"
         )
         recorder.save(avg_return, avg_thr, avg_mtt, avg_mwt)
-        return avg_return
+        # model selection on the median case return: robust to single-case
+        # congestion tip-overs that dominate the mean
+        return float(np.median(returns_all))
     finally:
         shared_q_net.train(original_mode)
 
@@ -161,7 +163,7 @@ def run_training(args):
 
             next_obs, rew_dict, done_flag, _info = train_env.step(action_dict)
             # truncation is a time limit, not a terminal state: bootstrap through it
-            done_stored = 0.0 if _info.get("truncated_gridlock") else float(done_flag)
+            done_stored = 0.0 if (_info.get("truncated_gridlock") or args.bootstrap_episode_end) else float(done_flag)
 
             # record per-agent transition into episode buffers
             for aid in agent_id_list:

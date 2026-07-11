@@ -32,6 +32,10 @@ def main():
     ap.add_argument("--hidden-q", type=int, default=128)
     ap.add_argument("--gnn-layers", type=int, default=2)
     ap.add_argument("--sumo-seed", type=int, default=12345)
+    ap.add_argument("--n-sumo-seeds", type=int, default=3,
+                    help="SUMO seeds per case (damps single-realisation tip-overs)")
+    ap.add_argument("--tipover-wait-s", type=float, default=60.0,
+                    help="Mean wait above this marks a case realisation as saturated")
     args = ap.parse_args()
 
     sw_dir = Path(args.switching_dir or f"eval_trips_switching_v2_grid_{args.grid_n}")
@@ -51,31 +55,34 @@ def main():
         model = None
         kpis_per_case = []
         for fname in sorted(meta["schedules"].keys()):
-            env = SumoGridMARLFixedEnv(
-                grid_n=args.grid_n,
-                episode_steps=int(meta["episode_steps"]),
-                sumo_steps_per_env_step=int(meta["sumo_steps_per_env_step"]),
-                fixed_trips_file=str(sw_dir / fname),
-                seed=args.sumo_seed,
-                suppress_sumo_output=True,
-            )
-            if model is None:
-                obs = env.reset()
-                aid0 = list(env.agent_ids)[0]
-                O = len(obs[aid0]); A = env.action_spaces[aid0].n
-                model = build_model(method, O, A, args.hidden_q, args.hidden_q, args.gnn_layers).to(device)
-                load_checkpoint(model, ckpt, device)
-                model.eval()
-            m = run_single_episode(env, model, device)
-            env.close()
-            kpis_per_case.append(m)
-            rows.append({"method": method, "grid_n": args.grid_n, "seed": args.seed, "case": fname, **m})
+            for k in range(args.n_sumo_seeds):
+                env = SumoGridMARLFixedEnv(
+                    grid_n=args.grid_n,
+                    episode_steps=int(meta["episode_steps"]),
+                    sumo_steps_per_env_step=int(meta["sumo_steps_per_env_step"]),
+                    fixed_trips_file=str(sw_dir / fname),
+                    seed=args.sumo_seed + 101 * k,
+                    suppress_sumo_output=True,
+                )
+                if model is None:
+                    obs = env.reset()
+                    aid0 = list(env.agent_ids)[0]
+                    O = len(obs[aid0]); A = env.action_spaces[aid0].n
+                    model = build_model(method, O, A, args.hidden_q, args.hidden_q, args.gnn_layers).to(device)
+                    load_checkpoint(model, ckpt, device)
+                    model.eval()
+                m = run_single_episode(env, model, device)
+                env.close()
+                kpis_per_case.append(m)
+                rows.append({"method": method, "grid_n": args.grid_n, "seed": args.seed,
+                             "case": fname, "sumo_seed": args.sumo_seed + 101 * k, **m})
 
-        tp = [m["throughput_vph"] for m in kpis_per_case]
-        wt = [m["mean_wait_s"] for m in kpis_per_case]
-        rt = [m["episode_return"] for m in kpis_per_case]
-        print(f"{method:16s} over {len(kpis_per_case)} cases | TP {np.mean(tp):7.1f}±{np.std(tp):6.1f} | "
-              f"wait {np.mean(wt):6.1f}±{np.std(wt):5.1f}s | return {np.mean(rt):8.1f}±{np.std(rt):6.1f}")
+        wt = np.array([m["mean_wait_s"] for m in kpis_per_case])
+        tp = np.array([m["throughput_vph"] for m in kpis_per_case])
+        rt = np.array([m["episode_return"] for m in kpis_per_case])
+        tipover = float((wt > args.tipover_wait_s).mean())
+        print(f"{method:16s} n={len(wt):3d} | wait med {np.median(wt):6.1f}s mean {wt.mean():6.1f}s | "
+              f"tip-over {100*tipover:4.1f}% | TP med {np.median(tp):7.1f} | return med {np.median(rt):8.1f}")
 
     out_csv = out_dir / f"switching_eval_grid{args.grid_n}_seed{args.seed}.csv"
     with out_csv.open("w", newline="") as f:

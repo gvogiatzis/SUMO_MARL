@@ -99,7 +99,9 @@ def evaluate_gated_shared(
             hist.append(val)
             np.save(p, np.array(hist, dtype=np.float32))
 
-        return avg_return
+        # model selection on the median case return: robust to single-case
+        # congestion tip-overs that dominate the mean
+        return float(np.median(returns_all))
     finally:
         online_q.train(original_mode)
 
@@ -178,7 +180,7 @@ def run_training(args):
             action_dict = {aid: int(chosen_actions[i]) for i, aid in enumerate(agent_id_list)}
             next_obs_dict, reward_dict, done, _info = train_env.step(action_dict)
             # truncation is a time limit, not a terminal state: bootstrap through it
-            done_stored = 0.0 if _info.get("truncated_gridlock") else float(done)
+            done_stored = 0.0 if (_info.get("truncated_gridlock") or args.bootstrap_episode_end) else float(done)
 
             X_next = np.stack([next_obs_dict[aid] for aid in agent_id_list], axis=0).astype(np.float32)
             R_t = np.array([float(reward_dict[aid]) for aid in agent_id_list], dtype=np.float32)

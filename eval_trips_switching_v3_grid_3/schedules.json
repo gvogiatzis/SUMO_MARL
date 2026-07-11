@@ -1,0 +1,181 @@
+{
+  "grid_n": 3,
+  "episode_steps": 450,
+  "sumo_steps_per_env_step": 5,
+  "segment_steps": 150,
+  "intensity": 1.0,
+  "intensity_map": "corridor:6,cross:1.2,platoons:9,bursty:5",
+  "base_seed": 7000,
+  "schedules": {
+    "case_00.xml": [
+      [
+        0.0,
+        750.0,
+        "bursty"
+      ],
+      [
+        750.0,
+        1500.0,
+        "platoons"
+      ],
+      [
+        1500.0,
+        2250.0,
+        "cross"
+      ]
+    ],
+    "case_01.xml": [
+      [
+        0.0,
+        750.0,
+        "bursty"
+      ],
+      [
+        750.0,
+        1500.0,
+        "corridor"
+      ],
+      [
+        1500.0,
+        2250.0,
+        "cross"
+      ]
+    ],
+    "case_02.xml": [
+      [
+        0.0,
+        750.0,
+        "corridor"
+      ],
+      [
+        750.0,
+        1500.0,
+        "platoons"
+      ],
+      [
+        1500.0,
+        2250.0,
+        "corridor"
+      ]
+    ],
+    "case_03.xml": [
+      [
+        0.0,
+        750.0,
+        "corridor"
+      ],
+      [
+        750.0,
+        1500.0,
+        "platoons"
+      ],
+      [
+        1500.0,
+        2250.0,
+        "cross"
+      ]
+    ],
+    "case_04.xml": [
+      [
+        0.0,
+        750.0,
+        "corridor"
+      ],
+      [
+        750.0,
+        1500.0,
+        "bursty"
+      ],
+      [
+        1500.0,
+        2250.0,
+        "platoons"
+      ]
+    ],
+    "case_05.xml": [
+      [
+        0.0,
+        750.0,
+        "corridor"
+      ],
+      [
+        750.0,
+        1500.0,
+        "cross"
+      ],
+      [
+        1500.0,
+        2250.0,
+        "platoons"
+      ]
+    ],
+    "case_06.xml": [
+      [
+        0.0,
+        750.0,
+        "cross"
+      ],
+      [
+        750.0,
+        1500.0,
+        "platoons"
+      ],
+      [
+        1500.0,
+        2250.0,
+        "cross"
+      ]
+    ],
+    "case_07.xml": [
+      [
+        0.0,
+        750.0,
+        "platoons"
+      ],
+      [
+        750.0,
+        1500.0,
+        "corridor"
+      ],
+      [
+        1500.0,
+        2250.0,
+        "bursty"
+      ]
+    ],
+    "case_08.xml": [
+      [
+        0.0,
+        750.0,
+        "bursty"
+      ],
+      [
+        750.0,
+        1500.0,
+        "platoons"
+      ],
+      [
+        1500.0,
+        2250.0,
+        "cross"
+      ]
+    ],
+    "case_09.xml": [
+      [
+        0.0,
+        750.0,
+        "corridor"
+      ],
+      [
+        750.0,
+        1500.0,
+        "platoons"
+      ],
+      [
+        1500.0,
+        2250.0,
+        "corridor"
+      ]
+    ]
+  }
+}

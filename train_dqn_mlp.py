@@ -73,7 +73,9 @@ def evaluate_idqn_mlp_shared(args, shared_q_network: QNetMLP, agent_id_list: Lis
         )
 
         recorder.save(avg_return, avg_throughput, avg_travel_s, avg_wait_s)
-        return avg_return
+        # model selection on the median case return: robust to single-case
+        # congestion tip-overs that dominate the mean
+        return float(np.median(returns_all))
     finally:
         shared_q_network.train(original_mode)
 
@@ -143,7 +145,7 @@ def run_training(args):
             action_dict = {aid: int(chosen_actions_np[i]) for i, aid in enumerate(agent_id_list)}
             next_observation_dict, reward_dict, episode_done_flag, _info = train_env.step(action_dict)
             # truncation is a time limit, not a terminal state: bootstrap through it
-            done_stored = 0.0 if _info.get("truncated_gridlock") else float(episode_done_flag)
+            done_stored = 0.0 if (_info.get("truncated_gridlock") or args.bootstrap_episode_end) else float(episode_done_flag)
 
             # Push each junction's transition into the shared replay buffer
             for i, agent_id in enumerate(agent_id_list):
