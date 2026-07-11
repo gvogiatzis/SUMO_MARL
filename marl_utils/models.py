@@ -785,11 +785,17 @@ class GatedSpatioTemporalQ(nn.Module):
     (1,0)=memory-only, (0,1)=GNN-like, (1,1)=fixed spatio-temporal.
     """
     def __init__(self, node_dim: int, actions: int, hidden: int = 128,
-                 gnn_layers: int = 2, gate_temp: float = 1.0, gate_bias_init: float = 1.0):
+                 gnn_layers: int = 2, gate_temp: float = 1.0, gate_bias_init: float = 1.0,
+                 gate_mem_mode: str = "learned", gate_com_mode: str = "learned"):
         super().__init__()
         self.hidden = hidden
         self.actions = actions
         self.gate_temp = gate_temp  # set by the trainer (annealed)
+        # ablation modes: "learned" | "open" (forced 1) | "closed" (forced 0)
+        assert gate_mem_mode in ("learned", "open", "closed")
+        assert gate_com_mode in ("learned", "open", "closed")
+        self.gate_mem_mode = gate_mem_mode
+        self.gate_com_mode = gate_com_mode
 
         self.encoder = nn.Sequential(
             nn.Linear(node_dim, hidden), nn.ReLU(),
@@ -871,6 +877,13 @@ class GatedSpatioTemporalQ(nn.Module):
         gate_in = torch.cat([e_seq, h_prev], dim=-1)
         logits = torch.cat([self.gate_mem_mlp(gate_in), self.gate_com_mlp(gate_in)], dim=-1)  # [B,T,N,2]
         g_used, g_soft = self._gate(logits)
+        # ablation overrides (also reflected in g_soft so logging/penalties see them)
+        for idx, mode in ((0, self.gate_mem_mode), (1, self.gate_com_mode)):
+            if mode != "learned":
+                const = 1.0 if mode == "open" else 0.0
+                g_used = g_used.clone(); g_soft = g_soft.clone()
+                g_used[..., idx] = const
+                g_soft[..., idx] = const
         g_mem, g_com = g_used[..., 0:1], g_used[..., 1:2]
 
         z = self.fuse_norm(e_seq + g_mem * self.W_mem(h_seq) + g_com * self.W_com(m_seq))
