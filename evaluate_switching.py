@@ -36,6 +36,8 @@ def main():
                     help="SUMO seeds per case (damps single-realisation tip-overs)")
     ap.add_argument("--tipover-wait-s", type=float, default=60.0,
                     help="Mean wait above this marks a case realisation as saturated")
+    ap.add_argument("--use-final", action="store_true",
+                    help="Evaluate the converged episode-end checkpoint (ckpt_*.pt) not model_best")
     ap.add_argument("--ckpt-suffix", type=str, default="",
                     help="Gate-mode suffix inserted before _seed in the checkpoint name (e.g. mocl)")
     args = ap.parse_args()
@@ -51,7 +53,11 @@ def main():
     for method in args.methods:
         if args.ckpt_suffix:
             base = Path(args.logs_base) / f"logs_grid_{args.grid_n}" / f"seed{args.seed}"
-            ckpt = base / f"model_best_{method.replace('_seq','seq')}_shared_seqlen8_{args.ckpt_suffix}_seed{args.seed}.pt"
+            name = f"{method.replace('_seq','seq')}_shared_seqlen8_{args.ckpt_suffix}"
+            # --use-final: evaluate the converged (episode-end) policy from the training-state
+            # checkpoint rather than model_best, which on hard tasks can select a pre-convergence peak.
+            ckpt = base / (f"ckpt_{name}_seed{args.seed}.pt" if args.use_final
+                           else f"model_best_{name}_seed{args.seed}.pt")
             ckpt = ckpt if ckpt.exists() else None
         else:
             ckpt = checkpoint_path_for(method, args.grid_n, args.seed, Path(args.logs_base))
@@ -76,7 +82,11 @@ def main():
                     aid0 = list(env.agent_ids)[0]
                     O = len(obs[aid0]); A = env.action_spaces[aid0].n
                     model = build_model(method, O, A, args.hidden_q, args.hidden_q, args.gnn_layers).to(device)
-                    load_checkpoint(model, ckpt, device)
+                    if args.use_final:
+                        st = torch.load(ckpt, map_location=device, weights_only=False)
+                        model.load_state_dict(st["online"] if "online" in st else st)
+                    else:
+                        load_checkpoint(model, ckpt, device)
                     model.eval()
                 m = run_single_episode(env, model, device)
                 env.close()
