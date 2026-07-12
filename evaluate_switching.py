@@ -36,6 +36,8 @@ def main():
                     help="SUMO seeds per case (damps single-realisation tip-overs)")
     ap.add_argument("--tipover-wait-s", type=float, default=60.0,
                     help="Mean wait above this marks a case realisation as saturated")
+    ap.add_argument("--ckpt-suffix", type=str, default="",
+                    help="Gate-mode suffix inserted before _seed in the checkpoint name (e.g. mocl)")
     args = ap.parse_args()
 
     sw_dir = Path(args.switching_dir or f"eval_trips_switching_v2_grid_{args.grid_n}")
@@ -47,7 +49,12 @@ def main():
 
     rows = []
     for method in args.methods:
-        ckpt = checkpoint_path_for(method, args.grid_n, args.seed, Path(args.logs_base))
+        if args.ckpt_suffix:
+            base = Path(args.logs_base) / f"logs_grid_{args.grid_n}" / f"seed{args.seed}"
+            ckpt = base / f"model_best_{method.replace('_seq','seq')}_shared_seqlen8_{args.ckpt_suffix}_seed{args.seed}.pt"
+            ckpt = ckpt if ckpt.exists() else None
+        else:
+            ckpt = checkpoint_path_for(method, args.grid_n, args.seed, Path(args.logs_base))
         if ckpt is None:
             print(f"[SKIP] {method}: checkpoint not found")
             continue
