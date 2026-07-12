@@ -101,6 +101,7 @@ PHASE1_METHODS = {
     "drqn_gnn_lstm": ("train_drqn_gnn_lstm.py", "--batch-size-seq 16 --seq-len 8 --burn-in 4"),
     "colight": ("train_colight.py", ""),
     "gated": ("train_gated.py", "--batch-size-seq 16 --seq-len 8 --burn-in 4"),
+    "gated_seq": ("train_gated.py", "--gated-arch sequential --batch-size-seq 16 --seq-len 8 --burn-in 4"),
 }
 
 

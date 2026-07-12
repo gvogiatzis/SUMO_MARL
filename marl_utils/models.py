@@ -64,7 +64,10 @@ class SimpleAttnMP(nn.Module):
         self.psi = nn.Linear(edge_dim, hidden) if edge_dim > 0 else None
         self.attn = nn.Linear(2 * hidden, 1)
         self.upd = nn.GRUCell(hidden, hidden)
-    def forward(self, node_x: torch.Tensor, edge_index: torch.Tensor, edge_attr: Optional[torch.Tensor] = None):
+    def forward(self, node_x: torch.Tensor, edge_index: torch.Tensor, edge_attr: Optional[torch.Tensor] = None,
+                comm_gate: Optional[torch.Tensor] = None):
+        # comm_gate: optional [N] or [N,1] per-(receiving-)node scale on the aggregated
+        # neighbour message. comm_gate=0 -> node receives no messages (self-only update).
         N = node_x.size(0)
         src, dst = edge_index[0], edge_index[1]
         h = torch.relu(self.phi(node_x))
@@ -75,6 +78,8 @@ class SimpleAttnMP(nn.Module):
         denom = torch.zeros(N, device=node_x.device); denom.index_add_(0, dst, exp_scores)
         alpha = exp_scores / (denom[dst] + 1e-9)
         aggregated = torch.zeros_like(h); aggregated.index_add_(0, dst, alpha.unsqueeze(-1) * (m_src + m_e))
+        if comm_gate is not None:
+            aggregated = aggregated * comm_gate.view(N, 1)
         return self.upd(aggregated, h)
 
 class GNNPolicyQ(nn.Module):
@@ -898,3 +903,105 @@ class GatedSpatioTemporalQ(nn.Module):
     ):
         q_seq, new_hidden, g_soft = self.forward(X_t.unsqueeze(1), edge_index, hidden)
         return q_seq[:, 0], new_hidden, g_soft[:, 0]                   # [B,N,A], (h,c), [B,N,2]
+
+# ============== Communication-gated sequential GNN->LSTM (AAMAS, scalable) ==============
+class CommGatedGNNLSTMQ(nn.Module):
+    """Sequential GNN->LSTM backbone (composes spatial then temporal, so memory
+    operates on spatially-aggregated features) with a per-agent, per-step
+    COMMUNICATION gate that masks neighbour aggregation, and a memory-read gate.
+
+    At g_com = g_mem = 1 this reduces exactly to GNNLSTMPolicyQ, so removing the
+    usage penalty recovers the strong spatio-temporal baseline (the property the
+    parallel-fusion GatedSpatioTemporalQ lacked at scale).
+
+    Communication is the costed coordination resource (message rate). The memory
+    gate is retained as a learned/forceable robustness--interpretability probe.
+
+    forward() returns Q [B,T,N,A], hidden, and soft gates [B,T,N,2] with
+    index 0 = memory, index 1 = communication (matches dqn_update_shared_gated).
+    """
+    def __init__(self, node_dim: int, actions: int, hidden: int = 128,
+                 gnn_layers: int = 2, gate_temp: float = 1.0, gate_bias_init: float = 1.0,
+                 gate_mem_mode: str = "learned", gate_com_mode: str = "learned"):
+        super().__init__()
+        self.hidden = hidden
+        self.actions = actions
+        self.gate_temp = gate_temp
+        assert gate_mem_mode in ("learned", "open", "closed")
+        assert gate_com_mode in ("learned", "open", "closed")
+        self.gate_mem_mode = gate_mem_mode
+        self.gate_com_mode = gate_com_mode
+
+        self.gnn_layers = nn.ModuleList([
+            SimpleAttnMP(node_dim if i == 0 else hidden, edge_dim=0, hidden=hidden)
+            for i in range(gnn_layers)
+        ])
+        self.pre_lstm_norm = nn.LayerNorm(hidden)
+        self.lstm = nn.LSTM(input_size=hidden, hidden_size=hidden, batch_first=True)
+        self.head = nn.Sequential(nn.Linear(hidden, hidden), nn.ReLU(), nn.Linear(hidden, actions))
+
+        # communication gate from local observation (batchable, no recurrent coupling)
+        self.comm_gate_mlp = nn.Sequential(
+            nn.Linear(node_dim, hidden // 2), nn.ReLU(), nn.Linear(hidden // 2, 1))
+        nn.init.constant_(self.comm_gate_mlp[-1].bias, gate_bias_init)
+        # memory-read gate from [spatial features, lstm output]
+        self.mem_gate_mlp = nn.Sequential(
+            nn.Linear(2 * hidden, hidden // 2), nn.ReLU(), nn.Linear(hidden // 2, 1))
+        nn.init.constant_(self.mem_gate_mlp[-1].bias, gate_bias_init)
+
+    def _build_batched_edges(self, edge_index, B, N):
+        Ei = edge_index
+        offsets = torch.arange(B, device=Ei.device, dtype=Ei.dtype) * N
+        src = Ei[0].unsqueeze(0) + offsets.unsqueeze(1)
+        dst = Ei[1].unsqueeze(0) + offsets.unsqueeze(1)
+        return torch.stack([src.reshape(-1), dst.reshape(-1)], dim=0)
+
+    def _gate(self, logits, mode):
+        if mode == "open":
+            g = torch.ones_like(logits)
+            return g, g
+        if mode == "closed":
+            g = torch.zeros_like(logits)
+            return g, g
+        if self.training:
+            u = torch.rand_like(logits).clamp(1e-6, 1 - 1e-6)
+            noisy = (logits + torch.log(u) - torch.log1p(-u)) / max(self.gate_temp, 1e-3)
+            g_soft = torch.sigmoid(noisy)
+            g_hard = (g_soft > 0.5).float()
+            return g_hard + g_soft - g_soft.detach(), torch.sigmoid(logits)
+        g_soft = torch.sigmoid(logits)
+        return (g_soft > 0.5).float(), g_soft
+
+    def forward(self, X_seq, edge_index, hidden=None):
+        B, T, N, O = X_seq.shape
+        Ei_b = self._build_batched_edges(edge_index.to(X_seq.device), B, N)
+
+        com_logits = self.comm_gate_mlp(X_seq)                       # [B,T,N,1]
+        g_com_used, g_com_soft = self._gate(com_logits, self.gate_com_mode)
+
+        z_time = []
+        for t in range(T):
+            x_t = X_seq[:, t].reshape(B * N, O)
+            gcom_t = g_com_used[:, t].reshape(B * N)                 # [B*N]
+            z = x_t
+            for mp in self.gnn_layers:
+                z = mp(z, Ei_b, edge_attr=None, comm_gate=gcom_t)
+            z_time.append(z.reshape(B, N, self.hidden).unsqueeze(1))
+        z_seq = self.pre_lstm_norm(torch.cat(z_time, dim=1))          # [B,T,N,H]
+
+        z_bn = z_seq.permute(0, 2, 1, 3).reshape(B * N, T, self.hidden)
+        lstm_bn, new_hidden = self.lstm(z_bn, hidden)
+        lstm_out = lstm_bn.reshape(B, N, T, self.hidden).permute(0, 2, 1, 3)  # [B,T,N,H]
+
+        mem_logits = self.mem_gate_mlp(torch.cat([z_seq, lstm_out], dim=-1))  # [B,T,N,1]
+        g_mem_used, g_mem_soft = self._gate(mem_logits, self.gate_mem_mode)
+
+        y = (1.0 - g_mem_used) * z_seq + g_mem_used * lstm_out
+        q = self.head(y)                                             # [B,T,N,A]
+        g_soft = torch.cat([g_mem_soft, g_com_soft], dim=-1)         # [B,T,N,2]
+        return q, new_hidden, g_soft
+
+    @torch.no_grad()
+    def step(self, X_t, edge_index, hidden=None):
+        q, new_hidden, g_soft = self.forward(X_t.unsqueeze(1), edge_index, hidden)
+        return q[:, 0], new_hidden, g_soft[:, 0]

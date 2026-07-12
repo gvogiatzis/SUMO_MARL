@@ -48,6 +48,9 @@ def parse_args():
     parser.add_argument('--gate-budget-mode', type=str, default='cap', choices=['cap', 'target'],
                         help='cap: penalise only usage above rho (gates may close freely); '
                              'target: two-sided (mean_gate - rho)^2 (forces ~rho usage)')
+    parser.add_argument('--gated-arch', type=str, default='parallel', choices=['parallel', 'sequential'],
+                        help='parallel: GatedSpatioTemporalQ (branch fusion); '
+                             'sequential: CommGatedGNNLSTMQ (GNN->LSTM backbone, communication-gated)')
     parser.add_argument('--gate-mem-mode', type=str, default='learned', choices=['learned', 'open', 'closed'],
                         help='Ablation: force memory gate open/closed instead of learning it')
     parser.add_argument('--gate-com-mode', type=str, default='learned', choices=['learned', 'open', 'closed'],

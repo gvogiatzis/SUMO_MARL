@@ -14,7 +14,7 @@ import torch.optim as optim
 from datetime import datetime
 from pathlib import Path
 
-from marl_utils.models import GatedSpatioTemporalQ
+from marl_utils.models import GatedSpatioTemporalQ, CommGatedGNNLSTMQ
 from marl_utils.replay_buffers import GlobalSequenceReplay
 from marl_utils.checkpointing import TrainingCheckpoint
 from marl_utils.network_update import dqn_update_shared_gated, soft_update
@@ -126,12 +126,13 @@ def run_training(args):
     A_dim = train_env.action_spaces[agent_id_list[0]].n
     edge_index = build_grid_edge_index(agent_id_list)
 
-    online_q = GatedSpatioTemporalQ(node_dim=O, actions=A_dim, hidden=args.hidden,
-                                    gnn_layers=args.gnn_layers, gate_temp=args.gate_temp_start,
-                                    gate_mem_mode=args.gate_mem_mode, gate_com_mode=args.gate_com_mode).to(device)
-    target_q = GatedSpatioTemporalQ(node_dim=O, actions=A_dim, hidden=args.hidden,
-                                    gnn_layers=args.gnn_layers, gate_temp=args.gate_temp_start,
-                                    gate_mem_mode=args.gate_mem_mode, gate_com_mode=args.gate_com_mode).to(device)
+    ModelCls = CommGatedGNNLSTMQ if args.gated_arch == "sequential" else GatedSpatioTemporalQ
+    online_q = ModelCls(node_dim=O, actions=A_dim, hidden=args.hidden,
+                        gnn_layers=args.gnn_layers, gate_temp=args.gate_temp_start,
+                        gate_mem_mode=args.gate_mem_mode, gate_com_mode=args.gate_com_mode).to(device)
+    target_q = ModelCls(node_dim=O, actions=A_dim, hidden=args.hidden,
+                        gnn_layers=args.gnn_layers, gate_temp=args.gate_temp_start,
+                        gate_mem_mode=args.gate_mem_mode, gate_com_mode=args.gate_com_mode).to(device)
     target_q.load_state_dict(online_q.state_dict())
     target_q.eval()
 
@@ -140,7 +141,8 @@ def run_training(args):
 
     eps = args.eps_start
     total_steps = 0
-    run_name = "gated_shared_seqlen" + str(args.seq_len)
+    prefix = "gatedseq" if args.gated_arch == "sequential" else "gated"
+    run_name = prefix + "_shared_seqlen" + str(args.seq_len)
     if args.gate_mem_mode != "learned" or args.gate_com_mode != "learned":
         run_name += f"_m{args.gate_mem_mode[0]}c{args.gate_com_mode[0]}"  # ablation variants
     ckpt = TrainingCheckpoint(args.logdir, args.grid_n, args.seed, run_name, every=args.ckpt_every)
