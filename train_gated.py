@@ -213,10 +213,18 @@ def run_training(args):
         )
 
         if total_steps >= args.warmup_steps:
-            # gate cost disabled during warmup so pathways can become useful first
-            cost_on = ep_idx > args.gate_cost_warmup_eps
-            lam_mem = args.lambda_mem if cost_on else 0.0
-            lam_com = args.lambda_com if cost_on else 0.0
+            if args.gate_cost_ramp_eps > 0:
+                # ramp the cost from 0 at ep 1 to full at gate_cost_ramp_eps: the policy
+                # co-adapts to sparse communication as pressure rises, rather than learning
+                # full-communication dependence during a flat warmup and then having it removed.
+                frac = min(1.0, ep_idx / float(args.gate_cost_ramp_eps))
+                lam_mem = args.lambda_mem * frac
+                lam_com = args.lambda_com * frac
+                cost_on = frac > 0.0
+            else:
+                cost_on = ep_idx > args.gate_cost_warmup_eps
+                lam_mem = args.lambda_mem if cost_on else 0.0
+                lam_com = args.lambda_com if cost_on else 0.0
 
             losses, gmems, gcoms = [], [], []
             for _ in range(args.updates_per_ep):

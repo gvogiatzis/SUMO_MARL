@@ -42,7 +42,9 @@ def parse_args():
     parser.add_argument('--gate-temp-start', type=float, default=2.0, help='Gumbel-sigmoid temperature at start')
     parser.add_argument('--gate-temp-end', type=float, default=0.5, help='Gumbel-sigmoid temperature at end')
     parser.add_argument('--gate-cost-warmup-eps', type=int, default=30,
-                        help='Episodes before gate sparsity cost is enabled')
+                        help='Episodes before gate sparsity cost is enabled (flat warmup)')
+    parser.add_argument('--gate-cost-ramp-eps', type=int, default=0,
+                        help='If >0: ramp gate cost linearly 0->full over the first N episodes (overrides warmup)')
     parser.add_argument('--gate-budget', type=float, default=-1.0,
                         help='If >=0: gate activation budget rho (see --gate-budget-mode)')
     parser.add_argument('--gate-budget-mode', type=str, default='cap', choices=['cap', 'target'],
